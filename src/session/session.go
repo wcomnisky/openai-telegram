@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/m1guelpf/chatgpt-telegram/src/ref"
 	"github.com/playwright-community/playwright-go"
+	"github.com/tztsai/openai-telegram/src/ref"
 )
 
 func GetSession() (string, error) {
@@ -73,7 +73,7 @@ func GetSession() (string, error) {
 }
 
 func launchBrowser(pw *playwright.Playwright, url string, headless bool) (playwright.BrowserContext, playwright.Page, error) {
-	browser, err := pw.Chromium.LaunchPersistentContext("/tmp/chatgpt", playwright.BrowserTypeLaunchPersistentContextOptions{Headless: playwright.Bool(headless)})
+	browser, err := pw.Chromium.LaunchPersistentContext("/tmp/openai", playwright.BrowserTypeLaunchPersistentContextOptions{Headless: playwright.Bool(headless)})
 	if err != nil {
 		return nil, nil, errors.New(fmt.Sprintf("Couldn't launch headless browser: %v", err))
 	}

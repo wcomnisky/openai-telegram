@@ -6,9 +6,9 @@ import (
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	"github.com/m1guelpf/chatgpt-telegram/src/chatgpt"
-	"github.com/m1guelpf/chatgpt-telegram/src/markdown"
-	"github.com/m1guelpf/chatgpt-telegram/src/ratelimit"
+	"github.com/tztsai/openai-telegram/src/markdown"
+	"github.com/tztsai/openai-telegram/src/openai"
+	"github.com/tztsai/openai-telegram/src/ratelimit"
 )
 
 type Bot struct {
@@ -73,7 +73,7 @@ func (b *Bot) SendTyping(chatID int64) {
 	}
 }
 
-func (b *Bot) SendAsLiveOutput(chatID int64, replyTo int, feed chan chatgpt.ChatResponse) {
+func (b *Bot) SendAsLiveOutput(chatID int64, replyTo int, feed chan openai.ChatResponse) {
 	debouncedType := ratelimit.Debounce(10*time.Second, func() { b.SendTyping(chatID) })
 	debouncedEdit := ratelimit.DebounceWithArgs(b.editInterval, func(text interface{}, messageId interface{}) {
 		if err := b.SendEdit(chatID, messageId.(int), text.(string)); err != nil {

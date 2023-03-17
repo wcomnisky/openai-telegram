@@ -15,7 +15,7 @@ type Config struct {
 }
 
 // LoadOrCreatePersistentConfig uses the default config directory for the current OS
-// to load or create a config file named "chatgpt.json"
+// to load or create a config file named "openai.json"
 func LoadOrCreatePersistentConfig() (*Config, error) {
 	configPath, err := os.UserConfigDir()
 	if err != nil {
@@ -23,7 +23,7 @@ func LoadOrCreatePersistentConfig() (*Config, error) {
 	}
 	v := viper.New()
 	v.SetConfigType("json")
-	v.SetConfigName("chatgpt")
+	v.SetConfigName("openai")
 	v.AddConfigPath(configPath)
 
 	if err := v.ReadInConfig(); err != nil {

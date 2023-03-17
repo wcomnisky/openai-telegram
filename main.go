@@ -8,32 +8,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/m1guelpf/chatgpt-telegram/src/chatgpt"
-	"github.com/m1guelpf/chatgpt-telegram/src/config"
-	"github.com/m1guelpf/chatgpt-telegram/src/session"
-	"github.com/m1guelpf/chatgpt-telegram/src/tgbot"
+	"github.com/tztsai/openai-telegram/src/config"
+	"github.com/tztsai/openai-telegram/src/openai"
+
+	// "github.com/tztsai/openai-telegram/src/session"
+	"github.com/tztsai/openai-telegram/src/tgbot"
 )
 
 func main() {
-	persistentConfig, err := config.LoadOrCreatePersistentConfig()
-	if err != nil {
-		log.Fatalf("Couldn't load config: %v", err)
-	}
-
-	if persistentConfig.OpenAISession == "" {
-		token, err := session.GetSession()
-		if err != nil {
-			log.Fatalf("Couldn't get OpenAI session: %v", err)
-		}
-
-		if err = persistentConfig.SetSessionToken(token); err != nil {
-			log.Fatalf("Couldn't save OpenAI session: %v", err)
-		}
-	}
-
-	chatGPT := chatgpt.Init(persistentConfig)
-	log.Println("Started ChatGPT")
-
 	envConfig, err := config.LoadEnvConfig(".env")
 	if err != nil {
 		log.Fatalf("Couldn't load .env config: %v", err)
@@ -41,6 +23,9 @@ func main() {
 	if err := envConfig.ValidateWithDefaults(); err != nil {
 		log.Fatalf("Invalid .env config: %v", err)
 	}
+
+	gpt := openai.Init(envConfig)
+	log.Println("Started GPT-4")
 
 	bot, err := tgbot.New(envConfig.TelegramToken, time.Duration(envConfig.EditWaitSeconds*int(time.Second)))
 	if err != nil {
@@ -76,9 +61,11 @@ func main() {
 		}
 
 		if !update.Message.IsCommand() {
+			log.Println("Received message:\n", updateText)
+
 			bot.SendTyping(updateChatID)
 
-			feed, err := chatGPT.SendMessage(updateText, updateChatID)
+			feed, err := gpt.SendMessage(updateText, updateChatID)
 			if err != nil {
 				bot.Send(updateChatID, updateMessageID, fmt.Sprintf("Error: %v", err))
 			} else {
@@ -90,11 +77,11 @@ func main() {
 		var text string
 		switch update.Message.Command() {
 		case "help":
-			text = "Send a message to start talking with ChatGPT. You can use /reload at any point to clear the conversation history and start from scratch (don't worry, it won't delete the Telegram messages)."
+			text = "Send a message to start talking with GPT4. You can use /reload at any point to clear the conversation history and start from scratch (don't worry, it won't delete the Telegram messages)."
 		case "start":
-			text = "Send a message to start talking with ChatGPT. You can use /reload at any point to clear the conversation history and start from scratch (don't worry, it won't delete the Telegram messages)."
+			text = "Send a message to start talking with GPT4. You can use /reload at any point to clear the conversation history and start from scratch (don't worry, it won't delete the Telegram messages)."
 		case "reload":
-			chatGPT.ResetConversation(updateChatID)
+			gpt.ResetConversation(updateChatID)
 			text = "Started a new conversation. Enjoy!"
 		default:
 			text = "Unknown command. Send /help to see a list of commands."
