@@ -1,10 +1,11 @@
 # GPT4-bot
 
-> Interact with ChatGPT
+> Chat with the latest OpenAI language model GPT-4. 
 
 Go CLI to fuels a Telegram bot that lets you interact with [GPT4](https://openai.com/product/gpt-4), a large language model trained by OpenAI.
 
 ## Installation
+
 Clone this repository and run `go build` in its root directory. 
 
 After you download the file, extract it into a folder and open the `env.example` file with a text editor and fill in your credentials. 
@@ -21,4 +22,14 @@ After you download the file, extract it into a folder and open the `env.example`
 > **Note** Make sure you rename the file to _exactly_ `.env`! The program won't work otherwise.
 
 Finally, run `./openai-telegram`.
+
+## Usage of the Telegram bot
+
+Directly send your message and wait for the reply!
+In addition, add "SYSTEM:" before your message to set the system information of your GPT-4 bot. 
+
+Commands:
+- /start: start the bot
+- /help: get help information
+- /reset: clear the conversation history 
 
