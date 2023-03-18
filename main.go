@@ -65,7 +65,10 @@ func main() {
 
 			bot.SendTyping(updateChatID)
 
-			feed, err := gpt.SendMessage(updateText, updateChatID)
+			feed, err, infos := gpt.SendMessage(updateText, updateChatID)
+			for _, info := range infos {
+				bot.Send(updateChatID, updateMessageID, info)
+			}
 			if err != nil {
 				bot.Send(updateChatID, updateMessageID, fmt.Sprintf("Error: %v", err))
 			} else {
@@ -77,10 +80,10 @@ func main() {
 		var text string
 		switch update.Message.Command() {
 		case "help":
-			text = "Send a message to start talking with GPT4. You can use /reload at any point to clear the conversation history and start from scratch (don't worry, it won't delete the Telegram messages)."
+			text = "Send a message to start talking with GPT4. You can use /reset at any point to clear the conversation history and start from scratch (don't worry, it won't delete the Telegram messages)."
 		case "start":
-			text = "Send a message to start talking with GPT4. You can use /reload at any point to clear the conversation history and start from scratch (don't worry, it won't delete the Telegram messages)."
-		case "reload":
+			text = "Send a message to start talking with GPT4. You can use /reset at any point to clear the conversation history and start from scratch (don't worry, it won't delete the Telegram messages)."
+		case "reset":
 			gpt.ResetConversation(updateChatID)
 			text = "Started a new conversation. Enjoy!"
 		default:

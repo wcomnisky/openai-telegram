@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/tztsai/openai-telegram/src/config"
@@ -86,10 +87,12 @@ func (c *GPT4) ResetConversation(chatID int64) {
 	c.conversations[chatID] = Conversation{}
 }
 
-func (c *GPT4) SendMessage(message string, tgChatID int64) (chan ChatResponse, error) {
+func (c *GPT4) SendMessage(message string, tgChatID int64) (chan ChatResponse, error, []string) {
 	accessToken, err := c.refreshAccessToken()
+	infos := []string{}
+
 	if err != nil {
-		return nil, errors.New(fmt.Sprintf("Couldn't get access token: %v", err))
+		return nil, errors.New(fmt.Sprintf("Couldn't get access token: %v", err)), infos
 	}
 
 	// client := sse.Init("https://chat.openai.com/backend-api/conversation")
@@ -102,12 +105,33 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan ChatResponse, e
 	}
 
 	convo := c.conversations[tgChatID]
-	msg := sse.Message{Role: "user", Content: message}
+
+	var msg sse.Message
+	if strings.HasPrefix(message, "SYSTEM:") {
+		log.Println("Setting system prompt...")
+		message = strings.TrimPrefix(message, "SYSTEM:")
+		msg = sse.Message{Role: "system", Content: message}
+	} else {
+		msg = sse.Message{Role: "user", Content: message}
+	}
+
 	convo.Messages = append(convo.Messages, msg)
 
-	err = client.Connect(convo.Messages)
-	if err != nil {
-		return nil, errors.New(fmt.Sprintf("Couldn't connect to OpenAI: %v", err))
+	for len(convo.Messages) > 0 {
+		err = client.Connect(convo.Messages)
+		if err != nil {
+			if strings.Contains(err.Error(), "400 Bad Request") {
+				convo.Messages = convo.Messages[2:] // delete both Q & A
+				info := "Max tokens exceeded, deleted the earliest message"
+				log.Println(info)
+				infos = append(infos, "Info: "+info)
+				log.Println("Conversation length:", len(convo.Messages))
+			} else {
+				return nil, errors.New(fmt.Sprintf("Couldn't connect to OpenAI: %v", err)), infos
+			}
+		} else {
+			break
+		}
 	}
 
 	r := make(chan ChatResponse)
@@ -137,13 +161,15 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan ChatResponse, e
 					c.conversations[tgChatID] = convo
 					log.Println("Conversation length:", len(convo.Messages))
 
-					r <- ChatResponse{Message: msg.Content}
+					r <- ChatResponse{Message: msg.Content +
+						fmt.Sprintf("\n(tokens: %d => %d)",
+							res.Usage.PromptTokens, res.Usage.CompletionTokens)}
 				}
 			}
 		}
 	}()
 
-	return r, nil
+	return r, nil, infos
 }
 
 func (c *GPT4) refreshAccessToken() (string, error) {
