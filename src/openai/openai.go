@@ -22,7 +22,8 @@ type Conversation struct {
 type GPT4 struct {
 	SessionToken   string
 	AccessTokenMap expirymap.ExpiryMap
-	conversations  map[int64]Conversation
+	Conversations  map[int64]Conversation
+	Temperature    float64
 }
 
 type SessionResult struct {
@@ -56,24 +57,24 @@ func Init(config *config.EnvConfig) *GPT4 {
 	return &GPT4{
 		AccessTokenMap: expirymap.New(),
 		SessionToken:   config.OpenAIKey,
-		conversations:  make(map[int64]Conversation),
+		Conversations:  make(map[int64]Conversation),
 	}
 }
 
 func (c *GPT4) ResetConversation(chatID int64) {
-	c.conversations[chatID] = Conversation{}
+	c.Conversations[chatID] = Conversation{}
 }
 
 func (c *GPT4) GetChats() []int64 {
-	keys := make([]int64, 0, len(c.conversations))
-	for k := range c.conversations {
+	keys := make([]int64, 0, len(c.Conversations))
+	for k := range c.Conversations {
 		keys = append(keys, k)
 	}
 	return keys
 }
 
 func (c *GPT4) ConversationText(chatID int64) string {
-	msgs := c.conversations[chatID].Messages
+	msgs := c.Conversations[chatID].Messages
 	ms, err := json.Marshal(&msgs)
 	if err != nil {
 		log.Println(err)
@@ -94,7 +95,7 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan ChatResponse, e
 		"Content-Type":  "application/json",
 	}
 
-	convo := c.conversations[tgChatID]
+	convo := c.Conversations[tgChatID]
 	var role string
 
 	var msg sse.Message
@@ -109,7 +110,7 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan ChatResponse, e
 
 	msg = sse.Message{Role: role, Content: message}
 	convo.Messages = append(convo.Messages, msg)
-	c.conversations[tgChatID] = convo
+	c.Conversations[tgChatID] = convo
 
 	for len(convo.Messages) > 0 {
 		err := client.Connect(c.ConversationText(tgChatID))
@@ -156,7 +157,7 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan ChatResponse, e
 					log.Printf("Got response from GPT4:\n%s", string(chunk))
 
 					convo.Messages = append(convo.Messages, msg)
-					c.conversations[tgChatID] = convo
+					c.Conversations[tgChatID] = convo
 					log.Println("Conversation length:", len(convo.Messages))
 
 					r <- ChatResponse{Message: msg.Content +
