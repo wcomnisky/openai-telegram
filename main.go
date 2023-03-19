@@ -72,7 +72,7 @@ func main() {
 			}
 			if err != nil {
 				bot.Send(updateChatID, updateMessageID, fmt.Sprintf("ERROR: %v", err))
-			} else {
+			} else if feed != nil {
 				bot.SendAsLiveOutput(updateChatID, updateMessageID, feed)
 			}
 			continue
@@ -92,7 +92,6 @@ func main() {
 			for _, chatID := range gpt.GetChats() {
 				text += fmt.Sprintf("/Chat%d\n", chatID)
 			}
-			bot.Send(updateChatID, updateMessageID, text)
 		default:
 			i, err := strconv.Atoi(cmd[4:])
 			if err != nil {
