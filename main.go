@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -67,10 +68,10 @@ func main() {
 
 			feed, err, infos := gpt.SendMessage(updateText, updateChatID)
 			for _, info := range infos {
-				bot.Send(updateChatID, updateMessageID, info)
+				bot.Send(updateChatID, updateMessageID, "INFO: "+info)
 			}
 			if err != nil {
-				bot.Send(updateChatID, updateMessageID, fmt.Sprintf("Error: %v", err))
+				bot.Send(updateChatID, updateMessageID, fmt.Sprintf("ERROR: %v", err))
 			} else {
 				bot.SendAsLiveOutput(updateChatID, updateMessageID, feed)
 			}
@@ -78,7 +79,8 @@ func main() {
 		}
 
 		var text string
-		switch update.Message.Command() {
+		cmd := update.Message.Command()
+		switch cmd {
 		case "help":
 			text = "Send a message to start talking with GPT4. You can use /reset at any point to clear the conversation history and start from scratch (don't worry, it won't delete the Telegram messages)."
 		case "start":
@@ -86,8 +88,18 @@ func main() {
 		case "reset":
 			gpt.ResetConversation(updateChatID)
 			text = "Started a new conversation. Enjoy!"
+		case "chats":
+			for _, chatID := range gpt.GetChats() {
+				text += fmt.Sprintf("\\%d\n", chatID)
+			}
+			bot.Send(updateChatID, updateMessageID, text)
 		default:
-			text = "Unknown command. Send /help to see a list of commands."
+			i, err := strconv.Atoi(cmd)
+			if err != nil {
+				text = "Unknown command. Send /help to see a list of commands."
+			} else {
+				text = gpt.ConversationText(int64(i))
+			}
 		}
 
 		if _, err := bot.Send(updateChatID, updateMessageID, text); err != nil {

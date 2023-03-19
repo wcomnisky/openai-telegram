@@ -5,9 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"net/http"
 	"strings"
-	"time"
 
 	"github.com/tztsai/openai-telegram/src/config"
 	"github.com/tztsai/openai-telegram/src/expirymap"
@@ -32,17 +30,6 @@ type SessionResult struct {
 	Expires     string `json:"expires"`
 	AccessToken string `json:"accessToken"`
 }
-
-// type MessageResponse struct {
-// 	ConversationId string `json:"conversation_id"`
-// 	Error          string `json:"error"`
-// 	Message        struct {
-// 		ID      string `json:"id"`
-// 		Content struct {
-// 			Parts []string `json:"parts"`
-// 		} `json:"content"`
-// 	} `json:"message"`
-// }
 
 type MessageResponse struct {
 	ID      string `json:"id"`
@@ -73,29 +60,32 @@ func Init(config *config.EnvConfig) *GPT4 {
 	}
 }
 
-func (c *GPT4) IsAuthenticated() bool {
-	_, err := c.refreshAccessToken()
-	return err == nil
-}
-
-func (c *GPT4) EnsureAuth() error {
-	_, err := c.refreshAccessToken()
-	return err
-}
-
 func (c *GPT4) ResetConversation(chatID int64) {
 	c.conversations[chatID] = Conversation{}
 }
 
+func (c *GPT4) GetChats() []int64 {
+	keys := make([]int64, 0, len(c.conversations))
+	for k := range c.conversations {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+func (c *GPT4) ConversationText(chatID int64) string {
+	msgs := c.conversations[chatID].Messages
+	ms, err := json.Marshal(&msgs)
+	if err != nil {
+		log.Println(err)
+		return ""
+	}
+	return string(ms)
+}
+
 func (c *GPT4) SendMessage(message string, tgChatID int64) (chan ChatResponse, error, []string) {
-	accessToken, err := c.refreshAccessToken()
+	accessToken := c.SessionToken
 	infos := []string{}
 
-	if err != nil {
-		return nil, errors.New(fmt.Sprintf("Couldn't get access token: %v", err)), infos
-	}
-
-	// client := sse.Init("https://chat.openai.com/backend-api/conversation")
 	client := sse.Init("https://api.openai.com/v1/chat/completions")
 
 	client.Headers = map[string]string{
@@ -105,26 +95,29 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan ChatResponse, e
 	}
 
 	convo := c.conversations[tgChatID]
+	var role string
 
 	var msg sse.Message
 	if strings.HasPrefix(message, "SYSTEM:") {
-		log.Println("Setting system prompt...")
+		role = "system"
+		log.Println("Set system prompt")
+		infos = append(infos, "Set system prompt")
 		message = strings.TrimPrefix(message, "SYSTEM:")
-		msg = sse.Message{Role: "system", Content: message}
 	} else {
-		msg = sse.Message{Role: "user", Content: message}
+		role = "user"
 	}
 
+	msg = sse.Message{Role: role, Content: message}
 	convo.Messages = append(convo.Messages, msg)
 
 	for len(convo.Messages) > 0 {
-		err = client.Connect(convo.Messages)
+		err := client.Connect(c.ConversationText(tgChatID))
 		if err != nil {
 			if strings.Contains(err.Error(), "400 Bad Request") {
 				convo.Messages = convo.Messages[2:] // delete both Q & A
 				info := "Max tokens exceeded, deleted the earliest message"
 				log.Println(info)
-				infos = append(infos, "Info: "+info)
+				infos = append(infos, info)
 				log.Println("Conversation length:", len(convo.Messages))
 			} else {
 				return nil, errors.New(fmt.Sprintf("Couldn't connect to OpenAI: %v", err)), infos
@@ -132,6 +125,10 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan ChatResponse, e
 		} else {
 			break
 		}
+	}
+
+	if role == "system" {
+		return nil, nil, infos
 	}
 
 	r := make(chan ChatResponse)
@@ -170,54 +167,4 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan ChatResponse, e
 	}()
 
 	return r, nil, infos
-}
-
-func (c *GPT4) refreshAccessToken() (string, error) {
-	return c.SessionToken, nil
-
-	cachedAccessToken, ok := c.AccessTokenMap.Get(KEY_ACCESS_TOKEN)
-	if ok {
-		return cachedAccessToken, nil
-	}
-
-	req, err := http.NewRequest("GET", "https://chat.openai.com/api/auth/session", nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to create request: %v", err)
-	}
-
-	req.Header.Set("User-Agent", USER_AGENT)
-	req.Header.Set("Cookie", fmt.Sprintf("__Secure-next-auth.session-token=%s", c.SessionToken))
-
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to perform request: %v", err)
-	}
-	defer res.Body.Close()
-
-	var result SessionResult
-	err = json.NewDecoder(res.Body).Decode(&result)
-	if err != nil {
-		return "", fmt.Errorf("failed to decode response: %v", err)
-	}
-
-	accessToken := result.AccessToken
-	if accessToken == "" {
-		return "", errors.New("unauthorized")
-	}
-
-	if result.Error != "" {
-		if result.Error == "RefreshAccessTokenError" {
-			return "", errors.New("Session token has expired")
-		}
-
-		return "", errors.New(result.Error)
-	}
-
-	expiryTime, err := time.Parse(time.RFC3339, result.Expires)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse expiry time: %v", err)
-	}
-	c.AccessTokenMap.Set(KEY_ACCESS_TOKEN, accessToken, expiryTime.Sub(time.Now()))
-
-	return accessToken, nil
 }
