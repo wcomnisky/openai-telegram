@@ -90,11 +90,11 @@ func main() {
 			text = "Started a new conversation. Enjoy!"
 		case "chats":
 			for _, chatID := range gpt.GetChats() {
-				text += fmt.Sprintf("\\%d\n", chatID)
+				text += fmt.Sprintf("/Chat%d\n", chatID)
 			}
 			bot.Send(updateChatID, updateMessageID, text)
 		default:
-			i, err := strconv.Atoi(cmd)
+			i, err := strconv.Atoi(cmd[4:])
 			if err != nil {
 				text = "Unknown command. Send /help to see a list of commands."
 			} else {

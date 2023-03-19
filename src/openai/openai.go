@@ -109,12 +109,13 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan ChatResponse, e
 
 	msg = sse.Message{Role: role, Content: message}
 	convo.Messages = append(convo.Messages, msg)
+	c.conversations[tgChatID] = convo
 
 	for len(convo.Messages) > 0 {
 		err := client.Connect(c.ConversationText(tgChatID))
 		if err != nil {
 			if strings.Contains(err.Error(), "400 Bad Request") {
-				convo.Messages = convo.Messages[2:] // delete both Q & A
+				convo.Messages = convo.Messages[1:] // delete both Q & A
 				info := "Max tokens exceeded, deleted the earliest message"
 				log.Println(info)
 				infos = append(infos, info)
