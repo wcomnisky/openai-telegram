@@ -1,6 +1,7 @@
 package sse
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -22,6 +23,12 @@ type Message struct {
 	Content string `json:"content"`
 }
 
+type Request struct {
+	Model       string    `json:"model"`
+	Messages    []Message `json:"messages"`
+	Temperature float32   `json:"temperature"`
+}
+
 func Init(url string) Client {
 	return Client{
 		URL:          url,
@@ -29,12 +36,9 @@ func Init(url string) Client {
 	}
 }
 
-func (c *Client) Connect(chat string) error {
-	body := fmt.Sprintf(`{
-		"model": "gpt-4",
-		"messages": %s,
-		"temperature": 0.7
-	}`, chat)
+func (c *Client) Connect(request Request) error {
+	bs, _ := json.Marshal(&request)
+	body := string(bs)
 
 	req, err := http.NewRequest("POST", c.URL, strings.NewReader(body))
 	if err != nil {

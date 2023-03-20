@@ -1,11 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -93,11 +95,17 @@ func main() {
 				text += fmt.Sprintf("/Chat%d\n", chatID)
 			}
 		default:
-			i, err := strconv.Atoi(cmd[4:])
-			if err != nil {
-				text = "Unknown command. Send /help to see a list of commands."
+			if strings.HasPrefix(cmd, "Chat") {
+				i, err := strconv.Atoi(cmd[4:])
+				if err != nil {
+					text = "Unknown chat ID."
+				} else {
+					ms := gpt.Conversations[int64(i)].Messages
+					bs, _ := json.Marshal(&ms)
+					text = string(bs)
+				}
 			} else {
-				text = gpt.ConversationText(int64(i))
+				text = "Unknown command. Send /help to see a list of commands."
 			}
 		}
 

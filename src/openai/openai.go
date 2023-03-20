@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/tztsai/openai-telegram/src/config"
 	"github.com/tztsai/openai-telegram/src/expirymap"
@@ -110,17 +111,32 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan ChatResponse, e
 
 	msg = sse.Message{Role: role, Content: message}
 	convo.Messages = append(convo.Messages, msg)
-	c.Conversations[tgChatID] = convo
 
-	for len(convo.Messages) > 0 {
-		err := client.Connect(c.ConversationText(tgChatID))
+	if len(convo.Messages) > 30 {
+		log.Println("Conversation getting too long, deleted the earliest response")
+		for i, msg := range convo.Messages {
+			if msg.Role == "assistant" {
+				convo.Messages = append(convo.Messages[:i], convo.Messages[i+1:]...)
+				break
+			}
+		}
+	}
+
+	for tries := 1; len(convo.Messages) > 0; tries++ {
+		err := client.Connect(sse.Request{
+			Model:       "gpt-4",
+			Messages:    convo.Messages,
+			Temperature: 0.7,
+		})
+
 		if err != nil {
-			if strings.Contains(err.Error(), "400 Bad Request") {
-				convo.Messages = convo.Messages[1:] // delete both Q & A
+			if tries < 3 && strings.Contains(err.Error(), "400 Bad Request") {
+				convo.Messages = convo.Messages[1:]
 				info := "Max tokens exceeded, deleted the earliest message"
-				log.Println(info)
 				infos = append(infos, info)
+				log.Println(info)
 				log.Println("Conversation length:", len(convo.Messages))
+				time.Sleep(1 * time.Second)
 			} else {
 				return nil, errors.New(fmt.Sprintf("Couldn't connect to OpenAI: %v", err)), infos
 			}
