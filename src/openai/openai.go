@@ -113,11 +113,15 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan ChatResponse, e
 	convo.Messages = append(convo.Messages, msg)
 
 	if len(convo.Messages) > 30 {
-		log.Println("Conversation getting too long, deleted the earliest response")
+		log.Println("Conversation getting too long, deleted earliest responses")
+		var c = 0
 		for i, msg := range convo.Messages {
 			if msg.Role == "assistant" {
 				convo.Messages = append(convo.Messages[:i], convo.Messages[i+1:]...)
-				break
+				c++
+				if c == 3 {
+					break
+				}
 			}
 		}
 	}
@@ -138,7 +142,7 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan ChatResponse, e
 				log.Println("Conversation length:", len(convo.Messages))
 				time.Sleep(1 * time.Second)
 			} else {
-				return nil, errors.New(fmt.Sprintf("Couldn't connect to OpenAI: %v", err)), infos
+				return nil, errors.New(fmt.Sprintf("Request failed: %v", err)), infos
 			}
 		} else {
 			break
