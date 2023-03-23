@@ -2,10 +2,10 @@ package openai
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"math"
+	"regexp"
 	"strings"
 	"time"
 
@@ -25,6 +25,7 @@ type Conversation struct {
 	Messages    []Message
 	TotalTokens int
 	Verbose     bool
+	Time        time.Time
 }
 
 type GPT4 struct {
@@ -32,8 +33,8 @@ type GPT4 struct {
 	SessionToken  string
 	Conversations map[int64]Conversation
 	Temperature   float32
-	Bing          bing.API
-	Wolfram       wolfram.API
+	Bing          *bing.API
+	Wolfram       *wolfram.API
 }
 
 type Message struct {
@@ -64,9 +65,9 @@ type MessageResponse struct {
 	} `json:"choices"`
 }
 
-type ChatResponse struct {
-	Message string
-}
+// type ChatResponse struct {
+// 	Message string
+// }
 
 func Init(config *config.EnvConfig) *GPT4 {
 	return &GPT4{
@@ -74,14 +75,25 @@ func Init(config *config.EnvConfig) *GPT4 {
 		SessionToken:  config.OpenAIKey,
 		Conversations: make(map[int64]Conversation),
 		Temperature:   0.7,
+		Bing:          bing.Init(config),
+		Wolfram:       wolfram.Init(config),
 	}
 }
 
 func (c *GPT4) ResetConversation(chatID int64) {
-	c.Conversations[chatID] = Conversation{}
+	delete(c.Conversations, chatID)
 }
 
-func (c *GPT4) GetChats() []int64 {
+func (c *GPT4) GetConversation(chatID int64) Conversation {
+	convo, ok := c.Conversations[chatID]
+	if !ok {
+		convo.Time = time.Now()
+		c.Conversations[chatID] = convo
+	}
+	return convo
+}
+
+func (c *GPT4) GetChatIDs() []int64 {
 	keys := make([]int64, 0, len(c.Conversations))
 	for k := range c.Conversations {
 		keys = append(keys, k)
@@ -107,8 +119,7 @@ func (c *GPT4) MakeRequest(messages []Message) Request {
 	}
 }
 
-func (c *GPT4) SendMessage(message string, tgChatID int64) (chan ChatResponse, error, []string) {
-	var infos = []string{}
+func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) {
 	var role string
 	var msg Message
 	var err error
@@ -117,11 +128,13 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan ChatResponse, e
 
 	convo := c.Conversations[tgChatID]
 
+	r := make(chan string)
+
 	if strings.HasPrefix(message, "SYSTEM:") {
 		role = "system"
 		log.Println("Set system prompt")
 		message = strings.TrimSpace(strings.TrimPrefix(message, "SYSTEM:"))
-		infos = append(infos, "Added system prompt")
+		// r <- "Added system prompt"
 	} else {
 		role = "user"
 	}
@@ -131,7 +144,7 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan ChatResponse, e
 
 	if role == "system" {
 		c.Conversations[tgChatID] = convo
-		return nil, nil, infos
+		return nil, nil
 	}
 
 	tokens_thresh := int(math.Round(MAX_TOKENS * 0.9))
@@ -147,43 +160,46 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan ChatResponse, e
 	}
 
 	for tries := 1; len(convo.Messages) > 0; tries++ {
-		err = client.Connect(c.MakeRequest(convo.Messages), "POST", make(map[string]string))
+		err = client.Connect(c.MakeRequest(convo.Messages), "POST", map[string]string{})
 
 		if err != nil {
 			if tries < 2 && strings.Contains(err.Error(), "400 Bad Request") && len(convo.Messages) > 4 {
 				convo.Messages = convo.Messages[2:]
-				info := "Max tokens exceeded, deleted earliest messages"
-				infos = append(infos, info)
+				info := "ℹ️ Max tokens exceeded, deleted earliest messages"
+				// r <- info
 				log.Println(info)
 				log.Println("Conversation length:", len(convo.Messages))
-				time.Sleep(1 * time.Second)
 			} else {
-				return nil, err, infos
+				return nil, err
 			}
 		} else {
 			break
 		}
 	}
 
-	r := make(chan ChatResponse)
+	var wait = false
 
 	go func() {
 		defer close(r)
 		for {
 			select {
 			case chunk, ok := <-client.EventChannel:
-				if len(chunk) == 0 {
+				if !ok {
 					return
-				} else if !ok {
-					err = errors.New("Bad response from OpenAI")
-					return
+				} else if len(chunk) == 0 {
+					if wait {
+						wait = false
+						continue
+					} else {
+						return
+					}
 				}
 
 				var res MessageResponse
 				err = json.Unmarshal(chunk, &res)
 				if err != nil {
 					log.Printf("Couldn't unmarshal message response: %v", err)
-					continue
+					return
 				}
 
 				if len(res.Choices) > 0 {
@@ -195,30 +211,62 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan ChatResponse, e
 					convo.TotalTokens = tok_in + tok_out
 					log.Println("Conversation length:", len(convo.Messages))
 
-					r <- ChatResponse{Message: msg.Content}
+					r <- msg.Content
+					if convo.Verbose {
+						r <- fmt.Sprintf("ℹ️ Tokens: %d => %d", tok_in, tok_out)
+					}
+					c.Conversations[tgChatID] = convo
 
-					infos = append(infos, fmt.Sprintf("Tokens: %d => %d", tok_in, tok_out))
-
-					if strings.HasPrefix(msg.Content, "ℹ️ Ask ") {
+					re := regexp.MustCompile(`ℹ️ Ask (\w+):\s+(.*)`)
+					m := re.FindStringSubmatch(msg.Content)
+					if len(m) > 0 {
 						var ans string
-						if strings.HasPrefix(msg.Content, "ℹ️ Ask Bing") {
-							ans, err = c.Bing.SendQuery(msg.Content)
-						} else if strings.HasPrefix(msg.Content, "ℹ️ Ask Wolfram") {
-							ans, err = c.Wolfram.SendQuery(msg.Content)
+						friend := m[1]
+						query := m[2]
+						if friend == "Bing" {
+							ans, err = c.Bing.SendQuery(query)
+						} else if friend == "Wolfram" {
+							ans, err = c.Wolfram.SendQuery(query)
+						} else {
+							continue
 						}
 						if err != nil {
 							return
 						}
-						convo.Messages = append(convo.Messages,
-							Message{Role: "assistant", Content: ans})
+						ans = fmt.Sprintf("Please summarize the response from %s:\n%s", friend, ans)
+						log.Println(ans)
+						// r <- ans
+						// infos = append(infos, ans)
+						// convo.Messages = append(convo.Messages,
+						// 	Message{Role: "user", Content: ans})
+						// err = client.Connect(c.MakeRequest(convo.Messages),
+						// 	"POST", map[string]string{})
+						// if err != nil {
+						// 	return
+						// }
+						// wait = true
+						r_, err := c.SendMessage(ans, tgChatID)
+						if err != nil {
+							return
+						}
+						msg := fmt.Sprintf("ℹ️ %s answers:\n\n%s", friend, <-r_)
+						r <- msg
+
+						// convo.Messages = convo.Messages[:len(convo.Messages)-2]
+						// c.Conversations[tgChatID] = convo
+
+						r_, err = c.SendMessage(msg, tgChatID)
+						if err != nil {
+							return
+						}
+						r <- (<-r_)
 					}
-					c.Conversations[tgChatID] = convo
 				}
 			}
 		}
 	}()
 
-	return r, err, infos
+	return r, err
 }
 
 // func (c *Client) AskBing(query string) error {

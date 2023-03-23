@@ -3,13 +3,13 @@ package wolfram
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 
 	"github.com/tztsai/openai-telegram/src/config"
 	"github.com/tztsai/openai-telegram/src/sse"
 )
 
 const API_URL = "http://api.wolframalpha.com/v2/query"
+const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36"
 
 type API struct {
 	URL    string
@@ -28,7 +28,11 @@ func Init(config *config.EnvConfig) *API {
 }
 
 func (c *API) InitClient() sse.Client {
-	return sse.Init(c.URL)
+	client := sse.Init(c.URL)
+	client.Headers = map[string]string{
+		"User-Agent": USER_AGENT,
+	}
+	return client
 }
 
 func (c *API) SendQuery(query string) (string, error) {
@@ -45,38 +49,24 @@ func (c *API) SendQuery(query string) (string, error) {
 		return "", err
 	}
 
-	r := make(chan string)
-
-	go func() {
-		defer close(r)
-	mainLoop:
-		for {
-			select {
-			case chunk, ok := <-client.EventChannel:
-				if len(chunk) == 0 || !ok {
-					break mainLoop
-				}
-
-				var res map[string]any
-				err := json.Unmarshal(chunk, &res)
-				if err != nil {
-					log.Printf("Couldn't unmarshal message response: %v", err)
-					continue
-				}
-
-				r <- ExtractResponse(res)
-			}
-		}
-	}()
-
-	s := <-r
-	return s, nil
+	chunk, ok := <-client.EventChannel
+	if len(chunk) == 0 || !ok {
+		return "", fmt.Errorf("No response from WolframAlpha")
+	}
+	var res map[string]map[string]any
+	err = json.Unmarshal(chunk, &res)
+	if err != nil {
+		return "", err
+	}
+	return ExtractResponse(res), nil
 }
 
-func ExtractResponse(resp map[string]any) string {
-	// resp = resp["queryresult"]
-	// if !resp["success"] {
-	// 	return "Failed"
-	// }
-	return fmt.Sprint(resp["pods"])
+func ExtractResponse(resp map[string]map[string]any) string {
+	res := resp["queryresult"]
+	ans, ok := res["pods"]
+	if !ok {
+		return "Failed"
+	} else {
+		return fmt.Sprint(ans)
+	}
 }

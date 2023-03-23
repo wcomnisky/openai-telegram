@@ -7,7 +7,6 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/tztsai/openai-telegram/src/markdown"
-	"github.com/tztsai/openai-telegram/src/openai"
 	"github.com/tztsai/openai-telegram/src/ratelimit"
 )
 
@@ -73,13 +72,13 @@ func (b *Bot) SendTyping(chatID int64) {
 	}
 }
 
-func (b *Bot) SendAsLiveOutput(chatID int64, replyTo int, feed chan openai.ChatResponse) {
+func (b *Bot) SendAsLiveOutput(chatID int64, replyTo int, feed chan string) {
 	debouncedType := ratelimit.Debounce(10*time.Second, func() { b.SendTyping(chatID) })
-	debouncedEdit := ratelimit.DebounceWithArgs(b.editInterval, func(text interface{}, messageId interface{}) {
-		if err := b.SendEdit(chatID, messageId.(int), text.(string)); err != nil {
-			log.Printf("Couldn't edit message: %v", err)
-		}
-	})
+	// debouncedEdit := ratelimit.DebounceWithArgs(b.editInterval, func(text interface{}, messageId interface{}) {
+	// 	if err := b.SendEdit(chatID, messageId.(int), text.(string)); err != nil {
+	// 		log.Printf("Couldn't edit message: %v", err)
+	// 	}
+	// })
 
 	var message tgbotapi.Message
 	var lastResp string
@@ -94,7 +93,10 @@ pollResponse:
 				break pollResponse
 			}
 
-			lastResp = response.Message
+			lastResp = response
+			if len(lastResp) > 2000 {
+				lastResp = lastResp[:2000] + "..."
+			}
 
 			if message.MessageID == 0 {
 				var err error
@@ -102,12 +104,13 @@ pollResponse:
 					log.Fatalf("Couldn't send message: %v", err)
 				}
 			} else {
-				debouncedEdit(lastResp, message.MessageID)
+				// debouncedEdit(lastResp, message.MessageID)
+				b.Send(chatID, replyTo, lastResp)
 			}
 		}
 	}
 
-	if err := b.SendEdit(chatID, message.MessageID, lastResp); err != nil {
-		log.Printf("Couldn't perform final edit on message: %v", err)
-	}
+	// if err := b.SendEdit(chatID, message.MessageID, lastResp); err != nil {
+	// 	log.Printf("Couldn't perform final edit on message: %v", err)
+	// }
 }

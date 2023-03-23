@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -30,7 +29,8 @@ func main() {
 	gpt := openai.Init(envConfig)
 	log.Println("Started GPT-4")
 
-	bot, err := tgbot.New(envConfig.TelegramToken, time.Duration(envConfig.EditWaitSeconds*int(time.Second)))
+	bot, err := tgbot.New(envConfig.TelegramToken,
+		time.Duration(envConfig.EditWaitSeconds*int(time.Second)))
 	if err != nil {
 		log.Fatalf("Couldn't start Telegram bot: %v", err)
 	}
@@ -55,7 +55,7 @@ func main() {
 			updateChatID    = update.Message.Chat.ID
 			updateMessageID = update.Message.MessageID
 			updateUserID    = update.Message.From.ID
-			conversation    = gpt.Conversations[updateChatID]
+			conversation    = gpt.GetConversation(updateChatID)
 		)
 
 		if len(envConfig.TelegramID) != 0 && !envConfig.HasTelegramID(updateUserID) {
@@ -69,12 +69,15 @@ func main() {
 
 			bot.SendTyping(updateChatID)
 
-			feed, err, infos := gpt.SendMessage(updateText, updateChatID)
-			if conversation.Verbose {
-				for _, info := range infos {
-					bot.Send(updateChatID, updateMessageID, "ℹ️ "+info)
-				}
-			}
+			feed, err := gpt.SendMessage(updateText, updateChatID)
+			// if conversation.Verbose {
+			// 	for _, info := range infos {
+			// 		if len(info) > 2048 {
+			// 			info = info[:2048] + "..."
+			// 		}
+			// 		bot.Send(updateChatID, updateMessageID, "ℹ️ "+info)
+			// 	}
+			// }
 			if err != nil {
 				bot.Send(updateChatID, updateMessageID, fmt.Sprintf("❌ %v", err))
 			} else if feed != nil {
@@ -87,43 +90,48 @@ func main() {
 		cmd := update.Message.Command()
 		switch cmd {
 		case "help":
-			text = "Send a message to start talking with GPT4. You can use /reset at any point to clear the conversation history and start from scratch (don't worry, it won't delete the Telegram messages)."
+			text = `/reset: clear the bot's memory of this conversation.
+/verbose: switch on/off the verbose mode of the bot.
+/ask_friends: allow the bot to ask Bing or Wolfram Alpha before giving an answer.`
 		case "start":
-			text = "Send a message to start talking with GPT4. You can use /reset at any point to clear the conversation history and start from scratch (don't worry, it won't delete the Telegram messages)."
+			text = "Send a message to start talking with GPT4. Use /help to find available commands."
 		case "reset":
 			gpt.ResetConversation(updateChatID)
-			text = "Started a new conversation. Enjoy!"
+			text = "ℹ️ Started a new conversation. Enjoy!"
 		case "chats":
-			for _, chatID := range gpt.GetChats() {
-				text += fmt.Sprintf("/chat-%d\n", chatID)
+			for _, chatID := range gpt.GetChatIDs() {
+				text += fmt.Sprintf("/chat_%d\n", chatID)
 			}
 		case "verbose":
 			conversation.Verbose = !conversation.Verbose
 			gpt.Conversations[updateChatID] = conversation
+			text = fmt.Sprintf("ℹ️ verbose = %s", strconv.FormatBool(conversation.Verbose))
 		case "ask_friends":
 			msg := `Your calculation is error-prone and your information is outdated, but now you are allowed to send queries to Bing and Wolfram Alpha before giving an answer. 
 
-			1. Each message you send is either a query, starting with "ℹ️ Ask (Bing|Wolfram):\n\n", or your own answer.
+			1. To send a query, a message must start with "ℹ️ Ask (Bing|Wolfram):\n\n". Otherwise it is regarded as your own answer.
 			2. Ask Bing for web searching. Bing can also be used as a calculator and unit converter for arithmetic queries, or a world clock for time-related queries.
 			3. Ask Wolfram for reliable data and scientific computation.
 			4. Ensure the accuracy of your final answer, while minimizing your number of queries and their lengths.`
-			_, _, infos := gpt.SendMessage("SYSTEM: "+msg, updateChatID)
-			text = infos[0] + "\n\n" + msg
+			gpt.SendMessage("SYSTEM: "+msg, updateChatID)
+			text = "ℹ️ Added system prompt\n\n" + msg
 		default:
-			if strings.HasPrefix(cmd, "chat-") {
-				i, err := strconv.Atoi(cmd[4:])
+			if strings.HasPrefix(cmd, "chat_") {
+				i, err := strconv.Atoi(cmd[5:])
 				if err != nil {
 					text = "Unknown chat ID."
 				} else {
-					ms := gpt.Conversations[int64(i)].Messages
-					bs, _ := json.Marshal(&ms)
-					text = string(bs)
+					convo := gpt.Conversations[int64(i)]
+					text = fmt.Sprintf("Length: %d\nTokens: %d\nStart time: %s",
+						len(convo.Messages), convo.TotalTokens, convo.Time.Format(time.RFC1123Z))
+					for _, msg := range convo.Messages {
+						log.Println(msg)
+					}
 				}
 			} else {
-				text = "Unknown command. Send /help to see a list of commands."
+				text = "ℹ️ Unknown command. Send /help to see a list of commands."
 			}
 		}
-		text = "ℹ️ " + text
 
 		if _, err := bot.Send(updateChatID, updateMessageID, text); err != nil {
 			log.Printf("Error sending message: %v", err)

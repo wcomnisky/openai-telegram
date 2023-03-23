@@ -9,8 +9,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
-	// "github.com/google/uuid"
-	// "github.com/launchdarkly/eventsource"
+	"time"
 )
 
 type Client struct {
@@ -28,6 +27,8 @@ func Init(url string) Client {
 
 func (c *Client) Connect(request any, method string, params map[string]string) error {
 	var body io.Reader
+	var err error
+
 	if method == "POST" {
 		bs, _ := json.Marshal(&request)
 		body = strings.NewReader(string(bs))
@@ -35,7 +36,7 @@ func (c *Client) Connect(request any, method string, params map[string]string) e
 		body = nil
 	}
 
-	req, err := http.NewRequest("POST", c.URL, body)
+	req, err := http.NewRequest(method, c.URL, body)
 	if err != nil {
 		return errors.New(fmt.Sprintf("failed to create request: %v", err))
 	}
@@ -52,8 +53,20 @@ func (c *Client) Connect(request any, method string, params map[string]string) e
 		req.Header.Set(key, value)
 	}
 
+	var resp *http.Response
 	http := &http.Client{}
-	resp, err := http.Do(req)
+
+	for i := 0; i < 3; i++ {
+		resp, err = http.Do(req)
+		if err != nil {
+			break
+		} else if resp.StatusCode == 429 || resp.StatusCode == 400 {
+			time.Sleep(2 * time.Second)
+		} else {
+			break
+		}
+	}
+
 	if err != nil {
 		return errors.New(fmt.Sprintf("failed to connect to SSE: %v", err))
 	}
@@ -74,6 +87,7 @@ func (c *Client) Connect(request any, method string, params map[string]string) e
 			}
 
 			c.EventChannel <- body
+			// log.Println("add to channel")
 		}
 	}()
 
