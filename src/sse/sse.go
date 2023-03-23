@@ -54,14 +54,15 @@ func (c *Client) Connect(request any, method string, params map[string]string) e
 	}
 
 	var resp *http.Response
-	http := &http.Client{}
 
 	for i := 0; i < 3; i++ {
+		http := &http.Client{}
 		resp, err = http.Do(req)
 		if err != nil {
 			break
 		} else if resp.StatusCode == 429 || resp.StatusCode == 400 {
-			time.Sleep(2 * time.Second)
+			log.Println("failed to connect to SSE, retrying in 2 seconds")
+			time.Sleep(time.Second)
 		} else {
 			break
 		}

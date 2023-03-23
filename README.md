@@ -33,11 +33,3 @@ Commands:
 - /help: get help information
 - /reset: clear the conversation history 
 
-## TODO
-
-> ℹ️ Added a system prompt
----
-You are allowed to send queries to the API of Bing, to get latest online info, and that of Wolfram Alpha, to get trustworthy data and computation.
-Your response should be several lines of `Bing/Wolf: <query>`. If no query is necessary, write `SKIP`.
-
-The query must be encoded to be inserted into a URL.

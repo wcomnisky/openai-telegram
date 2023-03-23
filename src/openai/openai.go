@@ -6,6 +6,7 @@ import (
 	"log"
 	"math"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -74,7 +75,7 @@ func Init(config *config.EnvConfig) *GPT4 {
 		ModelName:     "gpt-4",
 		SessionToken:  config.OpenAIKey,
 		Conversations: make(map[int64]Conversation),
-		Temperature:   0.7,
+		Temperature:   1.2,
 		Bing:          bing.Init(config),
 		Wolfram:       wolfram.Init(config),
 	}
@@ -135,6 +136,13 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 		log.Println("Set system prompt")
 		message = strings.TrimSpace(strings.TrimPrefix(message, "SYSTEM:"))
 		// r <- "Added system prompt"
+	} else if strings.HasPrefix(message, "TEMPER:") {
+		s := strings.TrimSpace(strings.TrimPrefix(message, "TEMPER:"))
+		t, err := strconv.ParseFloat(s, 32)
+		if err == nil {
+			c.Temperature = float32(t)
+		}
+		return nil, err
 	} else {
 		role = "user"
 	}
@@ -163,7 +171,7 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 		err = client.Connect(c.MakeRequest(convo.Messages), "POST", map[string]string{})
 
 		if err != nil {
-			if tries < 2 && strings.Contains(err.Error(), "400 Bad Request") && len(convo.Messages) > 4 {
+			if tries < 2 && strings.Contains(err.Error(), "400 Bad Request") && len(convo.Messages) > 8 {
 				convo.Messages = convo.Messages[2:]
 				info := "ℹ️ Max tokens exceeded, deleted earliest messages"
 				// r <- info
@@ -177,7 +185,7 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 		}
 	}
 
-	var wait = false
+	var wait = 0
 
 	go func() {
 		defer close(r)
@@ -187,8 +195,7 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 				if !ok {
 					return
 				} else if len(chunk) == 0 {
-					if wait {
-						wait = false
+					if wait > 0 {
 						continue
 					} else {
 						return
@@ -204,10 +211,36 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 
 				if len(res.Choices) > 0 {
 					msg := res.Choices[0].Message
+					msg.Content = strings.ReplaceAll(msg.Content, "\r\n", "\n")
 					log.Printf("Got response from GPT4:\n%s", string(chunk))
 
+					re := regexp.MustCompile(`ASK (\w+):\s+(.*)`)
+
+					if wait == 2 {
+						s := re.Split(msg.Content, 2)[0]
+						msg.Content = fmt.Sprintf("ANSWER SUMMARY:\n\n%s", s)
+						msg.Role = "user"
+						convo.Messages[len(convo.Messages)-1] = msg
+						wait = 1
+
+						req := c.MakeRequest(convo.Messages)
+						for tries := 1; tries < 3; tries++ {
+							err = client.Connect(req, "POST", map[string]string{})
+							if err == nil {
+								break
+							}
+							time.Sleep(2 * time.Second)
+						}
+						if err != nil {
+							log.Printf("Couldn't send message: %v", err)
+							return
+						}
+					} else {
+						convo.Messages = append(convo.Messages, msg)
+						wait = 0
+					}
+
 					tok_in, tok_out := res.Usage.PromptTokens, res.Usage.CompletionTokens
-					convo.Messages = append(convo.Messages, msg)
 					convo.TotalTokens = tok_in + tok_out
 					log.Println("Conversation length:", len(convo.Messages))
 
@@ -217,7 +250,6 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 					}
 					c.Conversations[tgChatID] = convo
 
-					re := regexp.MustCompile(`ℹ️ Ask (\w+):\s+(.*)`)
 					m := re.FindStringSubmatch(msg.Content)
 					if len(m) > 0 {
 						var ans string
@@ -233,33 +265,48 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 						if err != nil {
 							return
 						}
-						ans = fmt.Sprintf("Please summarize the response from %s:\n%s", friend, ans)
+						ans = fmt.Sprintf("Please summarize the response:\n%s", ans)
 						log.Println(ans)
-						// r <- ans
-						// infos = append(infos, ans)
-						// convo.Messages = append(convo.Messages,
-						// 	Message{Role: "user", Content: ans})
-						// err = client.Connect(c.MakeRequest(convo.Messages),
-						// 	"POST", map[string]string{})
+
+						convo.Messages = append(convo.Messages,
+							Message{Role: "user", Content: ans})
+						req := c.MakeRequest(convo.Messages)
+						for tries := 1; tries < 3; tries++ {
+							err = client.Connect(req, "POST", map[string]string{})
+							if err == nil {
+								break
+							}
+							time.Sleep(2 * time.Second)
+						}
+						if err != nil {
+							log.Printf("Couldn't send message: %v", err)
+							return
+						}
+						wait = 2
+
+						// r_, err := c.SendMessage(ans, tgChatID)
 						// if err != nil {
 						// 	return
 						// }
-						// wait = true
-						r_, err := c.SendMessage(ans, tgChatID)
-						if err != nil {
-							return
-						}
-						msg := fmt.Sprintf("ℹ️ %s answers:\n\n%s", friend, <-r_)
-						r <- msg
+						// for {
+						// 	select {
+						// 	case chunk, ok := <-r_:
+						// 		if !ok || len(chunk) == 0 {
+						// 			break
+						// 		}
+						// 		msg := fmt.Sprintf("ANSWERS %s:\n\n%s", friend, chunk)
+						// 		r <- msg
+						// 	}
+						// }
 
 						// convo.Messages = convo.Messages[:len(convo.Messages)-2]
 						// c.Conversations[tgChatID] = convo
 
-						r_, err = c.SendMessage(msg, tgChatID)
-						if err != nil {
-							return
-						}
-						r <- (<-r_)
+						// r_, err = c.SendMessage(msg, tgChatID)
+						// if err != nil {
+						// 	return
+						// }
+						// r <- (<-r_)
 					}
 				}
 			}

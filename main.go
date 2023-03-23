@@ -92,7 +92,10 @@ func main() {
 		case "help":
 			text = `/reset: clear the bot's memory of this conversation.
 /verbose: switch on/off the verbose mode of the bot.
-/ask_friends: allow the bot to ask Bing or Wolfram Alpha before giving an answer.`
+/ask_friends: allow the bot to ask Bing or Wolfram Alpha before giving an answer.
+
+A message starting with "SYSTEM:" is a system prompt.
+A message starting with "TEMPER:" sets the model temperature.`
 		case "start":
 			text = "Send a message to start talking with GPT4. Use /help to find available commands."
 		case "reset":
@@ -107,12 +110,12 @@ func main() {
 			gpt.Conversations[updateChatID] = conversation
 			text = fmt.Sprintf("ℹ️ verbose = %s", strconv.FormatBool(conversation.Verbose))
 		case "ask_friends":
-			msg := `Your calculation is error-prone and your information is outdated, but now you are allowed to send queries to Bing and Wolfram Alpha before giving an answer. 
+			msg := `You are allowed to send queries to your friends Bing and Wolfram Alpha before giving an answer. Whenever you are unable to answer a question or not sure about your answer, you should ask for help.
 
-			1. To send a query, a message must start with "ℹ️ Ask (Bing|Wolfram):\n\n". Otherwise it is regarded as your own answer.
-			2. Ask Bing for web searching. Bing can also be used as a calculator and unit converter for arithmetic queries, or a world clock for time-related queries.
-			3. Ask Wolfram for reliable data and scientific computation.
-			4. Ensure the accuracy of your final answer, while minimizing your number of queries and their lengths.`
+1. To send a query, a message must start with "ASK (Bing|Wolfram):\n\n". Otherwise it is regarded as your own answer.
+2. Ask Bing for web searching. Bing can also be used as a calculator and unit converter for arithmetic queries, or a world clock for time-related queries.
+3. Ask Wolfram for reliable data and scientific computation.
+4. Ensure the accuracy of your final answer, while minimizing your number of queries and their lengths.`
 			gpt.SendMessage("SYSTEM: "+msg, updateChatID)
 			text = "ℹ️ Added system prompt\n\n" + msg
 		default:
