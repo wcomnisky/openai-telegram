@@ -219,7 +219,7 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 					if wait == 2 {
 						s := re.Split(msg.Content, 2)[0]
 						msg.Content = fmt.Sprintf("ANSWER SUMMARY:\n\n%s", s)
-						msg.Role = "user"
+						// msg.Role = "user"
 						convo.Messages[len(convo.Messages)-1] = msg
 						wait = 1
 
