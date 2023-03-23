@@ -13,6 +13,8 @@ type EnvConfig struct {
 	TelegramID      []int64 `mapstructure:"TELEGRAM_ID"`
 	TelegramToken   string  `mapstructure:"TELEGRAM_TOKEN"`
 	OpenAIKey       string  `mapstructure:"OPENAI_KEY"`
+	AzureKey        string  `mapstructure:"AZURE_KEY"`
+	WolframAppID    string  `mapstructure:"WOLFRAM_APPID"`
 	EditWaitSeconds int     `mapstructure:"EDIT_WAIT_SECONDS"`
 }
 
@@ -20,6 +22,9 @@ type EnvConfig struct {
 // It is required to register config keys with viper when in case no config file is provided.
 const emptyConfig = `TELEGRAM_ID=
 TELEGRAM_TOKEN=
+OPENAI_KEY=
+WOLFRAM_APPID=
+AZURE_KEY=
 EDIT_WAIT_SECONDS=`
 
 func (e *EnvConfig) HasTelegramID(id int64) bool {

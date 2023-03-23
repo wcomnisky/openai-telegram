@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -18,17 +19,6 @@ type Client struct {
 	Headers      map[string]string
 }
 
-type Message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
-
-type Request struct {
-	Model       string    `json:"model"`
-	Messages    []Message `json:"messages"`
-	Temperature float32   `json:"temperature"`
-}
-
 func Init(url string) Client {
 	return Client{
 		URL:          url,
@@ -36,13 +26,26 @@ func Init(url string) Client {
 	}
 }
 
-func (c *Client) Connect(request Request) error {
-	bs, _ := json.Marshal(&request)
-	body := string(bs)
+func (c *Client) Connect(request any, method string, params map[string]string) error {
+	var body io.Reader
+	if method == "POST" {
+		bs, _ := json.Marshal(&request)
+		body = strings.NewReader(string(bs))
+	} else {
+		body = nil
+	}
 
-	req, err := http.NewRequest("POST", c.URL, strings.NewReader(body))
+	req, err := http.NewRequest("POST", c.URL, body)
 	if err != nil {
 		return errors.New(fmt.Sprintf("failed to create request: %v", err))
+	}
+
+	if len(params) > 0 {
+		q := req.URL.Query()
+		for k, v := range params {
+			q.Add(k, v)
+		}
+		req.URL.RawQuery = q.Encode()
 	}
 
 	for key, value := range c.Headers {
@@ -54,7 +57,6 @@ func (c *Client) Connect(request Request) error {
 	if err != nil {
 		return errors.New(fmt.Sprintf("failed to connect to SSE: %v", err))
 	}
-
 	if resp.StatusCode != 200 {
 		return errors.New(fmt.Sprintf("failed to connect to SSE: %v", resp.Status))
 	}
