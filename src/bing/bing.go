@@ -65,5 +65,5 @@ func ExtractResponse(resp map[string]any) string {
 			return fmt.Sprint(a)
 		}
 	}
-	return "Failed"
+	return ""
 }

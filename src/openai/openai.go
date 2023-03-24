@@ -20,6 +20,8 @@ const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/
 
 const MAX_TOKENS = 8192
 
+const QUERY_FAILED = "Query failed. Trying a new one."
+
 type Conversation struct {
 	Messages    []Message
 	TotalTokens int
@@ -214,6 +216,10 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 					re := regexp.MustCompile(`🤖 I ask (\w+):\s+(.*)`)
 					m := re.FindStringSubmatch(msg.Content)
 
+					if wait == 2 && convo.Messages[len(convo.Messages)-1].Content == QUERY_FAILED {
+						wait = 0 // try a new query
+					}
+
 					if wait == 2 { // summarize the query response
 						s := re.Split(msg.Content, 2)[0] // avoid a new query in the summary
 						msg.Content = fmt.Sprintf("🤖 I found:\n\n%s", s)
@@ -263,7 +269,12 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 						}
 
 						// ask GPT to summarize the query response
-						ans = fmt.Sprintf("Please summarize the response:\n%s", ans)
+						if len(ans) == 0 {
+							ans = QUERY_FAILED
+							feed <- ans
+						} else {
+							ans = fmt.Sprintf("Please summarize the response:\n%s", ans)
+						}
 						log.Println(ans)
 
 						convo.Messages = append(convo.Messages,

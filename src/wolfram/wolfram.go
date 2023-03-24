@@ -65,7 +65,7 @@ func ExtractResponse(resp map[string]map[string]any) string {
 	res := resp["queryresult"]
 	ans, ok := res["pods"]
 	if !ok {
-		return "Failed"
+		return ""
 	} else {
 		return fmt.Sprint(ans)
 	}
