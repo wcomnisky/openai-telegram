@@ -214,12 +214,14 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 					msg.Content = strings.ReplaceAll(msg.Content, "\r\n", "\n")
 					log.Printf("Got response from GPT4:\n%s", string(chunk))
 
-					re := regexp.MustCompile(`ASK (\w+):\s+(.*)`)
+					var text string
+
+					re := regexp.MustCompile(`I ASK (\w+):\s+(.*)`)
+					m := re.FindStringSubmatch(msg.Content)
 
 					if wait == 2 {
 						s := re.Split(msg.Content, 2)[0]
-						msg.Content = fmt.Sprintf("ANSWER SUMMARY:\n\n%s", s)
-						// msg.Role = "user"
+						msg.Content = fmt.Sprintf("I FOUND:\n\n%s", s)
 						convo.Messages[len(convo.Messages)-1] = msg
 						wait = 1
 
@@ -240,17 +242,22 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 						wait = 0
 					}
 
+					if len(m) > 0 || wait == 1 {
+						text = "🤖 " + msg.Content
+					} else {
+						text = msg.Content
+					}
+					r <- text
+
 					tok_in, tok_out := res.Usage.PromptTokens, res.Usage.CompletionTokens
 					convo.TotalTokens = tok_in + tok_out
 					log.Println("Conversation length:", len(convo.Messages))
 
-					r <- msg.Content
 					if convo.Verbose {
 						r <- fmt.Sprintf("ℹ️ Tokens: %d => %d", tok_in, tok_out)
 					}
 					c.Conversations[tgChatID] = convo
 
-					m := re.FindStringSubmatch(msg.Content)
 					if len(m) > 0 {
 						var ans string
 						friend := m[1]
@@ -283,30 +290,6 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 							return
 						}
 						wait = 2
-
-						// r_, err := c.SendMessage(ans, tgChatID)
-						// if err != nil {
-						// 	return
-						// }
-						// for {
-						// 	select {
-						// 	case chunk, ok := <-r_:
-						// 		if !ok || len(chunk) == 0 {
-						// 			break
-						// 		}
-						// 		msg := fmt.Sprintf("ANSWERS %s:\n\n%s", friend, chunk)
-						// 		r <- msg
-						// 	}
-						// }
-
-						// convo.Messages = convo.Messages[:len(convo.Messages)-2]
-						// c.Conversations[tgChatID] = convo
-
-						// r_, err = c.SendMessage(msg, tgChatID)
-						// if err != nil {
-						// 	return
-						// }
-						// r <- (<-r_)
 					}
 				}
 			}

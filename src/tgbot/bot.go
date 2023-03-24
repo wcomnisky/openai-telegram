@@ -49,6 +49,7 @@ func (b *Bot) Stop() {
 func (b *Bot) Send(chatID int64, replyTo int, text string) (tgbotapi.Message, error) {
 	text = markdown.EnsureFormatting(text)
 	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = "Markdown"
 	msg.ReplyToMessageID = replyTo
 	return b.api.Send(msg)
 }
