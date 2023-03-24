@@ -273,7 +273,7 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 							ans = QUERY_FAILED
 							feed <- ans
 						} else {
-							ans = fmt.Sprintf("Please summarize the response:\n%s", ans)
+							ans = fmt.Sprintf("Summarize the response from %s:\n%s", friend, ans)
 						}
 						log.Println(ans)
 
