@@ -20,7 +20,7 @@ const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/
 
 const MAX_TOKENS = 8192
 
-const QUERY_FAILED = "Query failed. Trying a new one."
+const QUERY_FAILED = "Query failed. Try a new one."
 
 type Conversation struct {
 	Messages    []Message

@@ -122,7 +122,7 @@ func main() {
 		case "ask_friends":
 			msg := `You are allowed to send queries to your friends Bing and Wolfram Alpha before giving an answer. Whenever you are unable to answer a question or not sure about your answer, you should ask for help.
 
-1. To send a query, a message must start with ` + "`🤖 I ask (Bing|Wolfram):`" + `. Otherwise it is regarded as your own answer.
+1. A query must start with a line ` + "`🤖 I ask (Bing|Wolfram):`" + `. A message may contain at most one query. If no query, the message is regarded as your final answer.
 2. Ask Bing for web searching. Bing can also be used as a calculator and unit converter for arithmetic queries, or a world clock for time-related queries.
 3. Ask Wolfram for reliable data and scientific computation.
 4. Ensure the accuracy of your final answer, while minimizing your number of queries and their lengths.`
