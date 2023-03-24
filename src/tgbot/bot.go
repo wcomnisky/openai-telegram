@@ -127,6 +127,7 @@ func (b *Bot) SendAsLiveOutput(chatID int64, replyTo int, feed chan string) {
 			continue
 		}
 
+		log.Println("Sending message to chat")
 		message, err := b.Send(chatID, replyTo, queue[0])
 
 		if err != nil {
