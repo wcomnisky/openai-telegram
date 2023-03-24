@@ -211,14 +211,12 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 					msg.Content = strings.ReplaceAll(msg.Content, "\r\n", "\n")
 					log.Printf("Got response from GPT4:\n%s", string(chunk))
 
-					var text string
-
-					re := regexp.MustCompile(`I ASK (\w+):\s+(.*)`)
+					re := regexp.MustCompile(`🤖 I ask (\w+):\s+(.*)`)
 					m := re.FindStringSubmatch(msg.Content)
 
 					if wait == 2 { // summarize the query response
 						s := re.Split(msg.Content, 2)[0] // avoid a new query in the summary
-						msg.Content = fmt.Sprintf("I FOUND:\n%s", s)
+						msg.Content = fmt.Sprintf("🤖 I found:\n\n%s", s)
 
 						// replace the last query response with its summary
 						convo.Messages[len(convo.Messages)-1] = msg
@@ -236,15 +234,7 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 						wait = 0
 					}
 
-					if len(m) > 0 {
-						ss := re.Split(msg.Content, 2)
-						text = fmt.Sprintf("%s🤖 %s", ss[0], m[0])
-					} else if wait == 1 {
-						text = "🤖 " + msg.Content
-					} else {
-						text = msg.Content
-					}
-					feed <- text
+					feed <- msg.Content
 
 					tok_in, tok_out := res.Usage.PromptTokens, res.Usage.CompletionTokens
 					convo.TotalTokens = tok_in + tok_out
