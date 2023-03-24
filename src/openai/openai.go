@@ -6,7 +6,6 @@ import (
 	"log"
 	"math"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -17,7 +16,6 @@ import (
 )
 
 const API_URL = "https://api.openai.com/v1/chat/completions"
-const KEY_ACCESS_TOKEN = "accessToken"
 const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36"
 
 const MAX_TOKENS = 8192
@@ -94,6 +92,11 @@ func (c *GPT4) GetConversation(chatID int64) Conversation {
 	return convo
 }
 
+func (t *Conversation) GetConversationInfo() string {
+	return fmt.Sprintf("Length: %d\nTokens: %d\nDuration: %.0f s",
+		len(t.Messages), t.TotalTokens, time.Since(t.Time).Seconds())
+}
+
 func (c *GPT4) GetChatIDs() []int64 {
 	keys := make([]int64, 0, len(c.Conversations))
 	for k := range c.Conversations {
@@ -129,20 +132,12 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 
 	convo := c.Conversations[tgChatID]
 
-	r := make(chan string)
+	// a channel to send the responses back to the main thread
+	feed := make(chan string)
 
-	if strings.HasPrefix(message, "SYSTEM:") {
+	if strings.HasPrefix(message, "/system ") {
 		role = "system"
-		log.Println("Set system prompt")
-		message = strings.TrimSpace(strings.TrimPrefix(message, "SYSTEM:"))
-		// r <- "Added system prompt"
-	} else if strings.HasPrefix(message, "TEMPER:") {
-		s := strings.TrimSpace(strings.TrimPrefix(message, "TEMPER:"))
-		t, err := strconv.ParseFloat(s, 32)
-		if err == nil {
-			c.Temperature = float32(t)
-		}
-		return nil, err
+		message = message[8:]
 	} else {
 		role = "user"
 	}
@@ -168,15 +163,17 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 	}
 
 	for tries := 1; len(convo.Messages) > 0; tries++ {
+		// post HTTP request
 		err = client.Connect(c.MakeRequest(convo.Messages), "POST", map[string]string{})
-
 		if err != nil {
-			if tries < 2 && strings.Contains(err.Error(), "400 Bad Request") && len(convo.Messages) > 8 {
+			exc := strings.Contains(err.Error(), "400 Bad Request") && convo.TotalTokens > 4000
+			// if max tokens exceeded, delete earliest messages and try again
+			if tries < 2 && exc {
+				log.Println(convo.GetConversationInfo())
 				convo.Messages = convo.Messages[2:]
 				info := "ℹ️ Max tokens exceeded, deleted earliest messages"
-				// r <- info
 				log.Println(info)
-				log.Println("Conversation length:", len(convo.Messages))
+				go func() { feed <- info }()
 			} else {
 				return nil, err
 			}
@@ -188,7 +185,7 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 	var wait = 0
 
 	go func() {
-		defer close(r)
+		defer close(feed)
 		for {
 			select {
 			case chunk, ok := <-client.EventChannel:
@@ -219,22 +216,19 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 					re := regexp.MustCompile(`I ASK (\w+):\s+(.*)`)
 					m := re.FindStringSubmatch(msg.Content)
 
-					if wait == 2 {
-						s := re.Split(msg.Content, 2)[0]
-						msg.Content = fmt.Sprintf("I FOUND:\n\n%s", s)
-						convo.Messages[len(convo.Messages)-1] = msg
-						wait = 1
+					if wait == 2 { // summarize the query response
+						s := re.Split(msg.Content, 2)[0] // avoid a new query in the summary
+						msg.Content = fmt.Sprintf("I FOUND:\n%s", s)
 
+						// replace the last query response with its summary
+						convo.Messages[len(convo.Messages)-1] = msg
+						wait = 1 // wait for the next message (a final answer or a new query)
+
+						// send a new request with the updated messages
 						req := c.MakeRequest(convo.Messages)
-						for tries := 1; tries < 3; tries++ {
-							err = client.Connect(req, "POST", map[string]string{})
-							if err == nil {
-								break
-							}
-							time.Sleep(2 * time.Second)
-						}
+						err = client.Connect(req, "POST", map[string]string{})
 						if err != nil {
-							log.Printf("Couldn't send message: %v", err)
+							log.Println(err)
 							return
 						}
 					} else {
@@ -242,26 +236,30 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 						wait = 0
 					}
 
-					if len(m) > 0 || wait == 1 {
+					if len(m) > 0 {
+						ss := re.Split(msg.Content, 2)
+						text = fmt.Sprintf("%s🤖 %s", ss[0], m[0])
+					} else if wait == 1 {
 						text = "🤖 " + msg.Content
 					} else {
 						text = msg.Content
 					}
-					r <- text
+					feed <- text
 
 					tok_in, tok_out := res.Usage.PromptTokens, res.Usage.CompletionTokens
 					convo.TotalTokens = tok_in + tok_out
-					log.Println("Conversation length:", len(convo.Messages))
+					log.Println(convo.GetConversationInfo())
 
 					if convo.Verbose {
-						r <- fmt.Sprintf("ℹ️ Tokens: %d => %d", tok_in, tok_out)
+						feed <- fmt.Sprintf("ℹ️ Tokens: %d => %d", tok_in, tok_out)
 					}
 					c.Conversations[tgChatID] = convo
 
 					if len(m) > 0 {
-						var ans string
 						friend := m[1]
 						query := m[2]
+						var ans string
+
 						if friend == "Bing" {
 							ans, err = c.Bing.SendQuery(query)
 						} else if friend == "Wolfram" {
@@ -270,35 +268,28 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 							continue
 						}
 						if err != nil {
+							log.Println(err)
 							return
 						}
+
+						// ask GPT to summarize the query response
 						ans = fmt.Sprintf("Please summarize the response:\n%s", ans)
 						log.Println(ans)
 
 						convo.Messages = append(convo.Messages,
 							Message{Role: "user", Content: ans})
 						req := c.MakeRequest(convo.Messages)
-						for tries := 1; tries < 3; tries++ {
-							err = client.Connect(req, "POST", map[string]string{})
-							if err == nil {
-								break
-							}
-							time.Sleep(2 * time.Second)
-						}
+						err = client.Connect(req, "POST", map[string]string{})
 						if err != nil {
-							log.Printf("Couldn't send message: %v", err)
+							log.Println(err)
 							return
 						}
-						wait = 2
+						wait = 2 // wait for 2 more responses (the summary and a new message)
 					}
 				}
 			}
 		}
 	}()
 
-	return r, err
+	return feed, err
 }
-
-// func (c *Client) AskBing(query string) error {
-
-// }

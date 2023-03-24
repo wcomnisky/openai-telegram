@@ -1,12 +1,14 @@
 package sse
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
+	"math/big"
 	"net/http"
 	"strings"
 	"time"
@@ -55,21 +57,23 @@ func (c *Client) Connect(request any, method string, params map[string]string) e
 
 	var resp *http.Response
 
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 5; i++ {
 		http := &http.Client{}
 		resp, err = http.Do(req)
 		if err != nil {
 			break
 		} else if resp.StatusCode == 429 || resp.StatusCode == 400 {
-			log.Println("failed to connect to SSE, retrying in 2 seconds")
-			time.Sleep(time.Second)
+			log.Printf("failed to connect to SSE, retry %d/5", i+1)
+			i, _ := rand.Int(rand.Reader, big.NewInt(3000))
+			k := i.Int64() + 1000
+			time.Sleep(time.Duration(k) * time.Millisecond)
 		} else {
 			break
 		}
 	}
 
 	if err != nil {
-		return errors.New(fmt.Sprintf("failed to connect to SSE: %v", err))
+		return err
 	}
 	if resp.StatusCode != 200 {
 		return errors.New(fmt.Sprintf("failed to connect to SSE: %v", resp.Status))
@@ -88,7 +92,6 @@ func (c *Client) Connect(request any, method string, params map[string]string) e
 			}
 
 			c.EventChannel <- body
-			// log.Println("add to channel")
 		}
 	}()
 

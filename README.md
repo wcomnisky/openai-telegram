@@ -32,4 +32,3 @@ Commands:
 - /start: start the bot
 - /help: get help information
 - /reset: clear the conversation history 
-

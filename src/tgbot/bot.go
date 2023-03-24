@@ -3,11 +3,11 @@ package tgbot
 import (
 	"log"
 	"os"
+	"regexp"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/tztsai/openai-telegram/src/markdown"
-	"github.com/tztsai/openai-telegram/src/ratelimit"
 )
 
 type Bot struct {
@@ -28,7 +28,6 @@ func New(token string, editInterval time.Duration) (*Bot, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	return &Bot{
 		Username:     api.Self.UserName,
 		api:          api,
@@ -48,24 +47,52 @@ func (b *Bot) Stop() {
 
 func (b *Bot) Send(chatID int64, replyTo int, text string) (tgbotapi.Message, error) {
 	text = markdown.EnsureFormatting(text)
-	msg := tgbotapi.NewMessage(chatID, text)
-	msg.ParseMode = "Markdown"
-	msg.ReplyToMessageID = replyTo
-	return b.api.Send(msg)
+	maxlen := 3072
+	space := regexp.MustCompile(`\s`)
+	i0, i1 := 0, 0
+	var m tgbotapi.Message
+	var err error
+	for i1 < len(text) {
+		i0 = i1
+		if i0 > 0 {
+			time.Sleep(b.editInterval * time.Second)
+			k := space.FindIndex([]byte(text[i0-72 : i0]))
+			if k != nil { // try to split at a space
+				i0 = i0 - 72 + k[1]
+			}
+		}
+		i1 = i0 + maxlen
+		if i1 >= len(text) {
+			i1 = len(text)
+		} else {
+			k := space.FindIndex([]byte(text[i1-72 : i1]))
+			if k != nil { // try to split at a space
+				i1 = i1 - 72 + k[1]
+			}
+		}
+		msg := tgbotapi.NewMessage(chatID, text[i0:i1])
+		msg.ParseMode = "Markdown"
+		msg.ReplyToMessageID = replyTo
+		m, err = b.api.Send(msg)
+		if err != nil {
+			return m, err
+		}
+	}
+	return m, nil
 }
 
-func (b *Bot) SendEdit(chatID int64, messageID int, text string) error {
-	text = markdown.EnsureFormatting(text)
-	msg := tgbotapi.NewEditMessageText(chatID, messageID, text)
-	msg.ParseMode = "Markdown"
-	if _, err := b.api.Send(msg); err != nil {
-		if err.Error() == "Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message" {
-			return nil
-		}
-		return err
-	}
-	return nil
-}
+// func (b *Bot) SendEdit(chatID int64, messageID int, text string) error {
+// 	text = markdown.EnsureFormatting(text)
+// 	msg := tgbotapi.NewEditMessageText(chatID, messageID, text)
+// 	msg.ParseMode = "Markdown"
+// 	if _, err := b.api.Send(msg); err != nil {
+// 		if err.Error() == "Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message" {
+// 			return nil
+// 		}
+// 		return err
+// 	}
+// 	return nil
+// }
 
 func (b *Bot) SendTyping(chatID int64) {
 	if _, err := b.api.Request(tgbotapi.NewChatAction(chatID, "typing")); err != nil {
@@ -74,44 +101,41 @@ func (b *Bot) SendTyping(chatID int64) {
 }
 
 func (b *Bot) SendAsLiveOutput(chatID int64, replyTo int, feed chan string) {
-	debouncedType := ratelimit.Debounce(10*time.Second, func() { b.SendTyping(chatID) })
-	// debouncedEdit := ratelimit.DebounceWithArgs(b.editInterval, func(text interface{}, messageId interface{}) {
-	// 	if err := b.SendEdit(chatID, messageId.(int), text.(string)); err != nil {
-	// 		log.Printf("Couldn't edit message: %v", err)
-	// 	}
-	// })
+	var queue []string
+	var lastEditTime time.Time
+	var lastTypeTime time.Time
+	var done = false
 
-	var message tgbotapi.Message
-	var lastResp string
+	for !done || len(queue) > 0 {
+		if time.Since(lastTypeTime) > 10*time.Second {
+			b.SendTyping(chatID)
+			lastTypeTime = time.Now()
+		}
 
-pollResponse:
-	for {
-		debouncedType()
-
-		select {
-		case response, ok := <-feed:
-			if !ok {
-				break pollResponse
-			}
-
-			lastResp = response
-			if len(lastResp) > 2000 {
-				lastResp = lastResp[:2000] + "..."
-			}
-
-			if message.MessageID == 0 {
-				var err error
-				if message, err = b.Send(chatID, replyTo, lastResp); err != nil {
-					log.Fatalf("Couldn't send message: %v", err)
+		if !done {
+			select {
+			case response, ok := <-feed:
+				if !ok {
+					done = true
+				} else {
+					queue = append(queue, response)
 				}
-			} else {
-				// debouncedEdit(lastResp, message.MessageID)
-				b.Send(chatID, replyTo, lastResp)
 			}
+		}
+
+		if len(queue) == 0 || time.Since(lastEditTime) < b.editInterval {
+			continue
+		}
+
+		message, err := b.Send(chatID, replyTo, queue[0])
+
+		if err != nil {
+			log.Fatalf("Couldn't send message: %v", err)
+		} else {
+			queue = queue[1:]
+			lastEditTime = time.Now()
+			replyTo = message.MessageID
 		}
 	}
 
-	// if err := b.SendEdit(chatID, message.MessageID, lastResp); err != nil {
-	// 	log.Printf("Couldn't perform final edit on message: %v", err)
-	// }
 }
