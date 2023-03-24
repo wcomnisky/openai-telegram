@@ -112,12 +112,12 @@ A message starting with "TEMPER:" sets the model temperature.`
 		case "ask_friends":
 			msg := `You are allowed to send queries to your friends Bing and Wolfram Alpha before giving an answer. Whenever you are unable to answer a question or not sure about your answer, you should ask for help.
 
-1. To send a query, a message must start with "ASK (Bing|Wolfram):\n\n". Otherwise it is regarded as your own answer.
+1. To send a query, a message must start with ` + "`ASK (Bing|Wolfram):\n\n`" + `. Otherwise it is regarded as your own answer.
 2. Ask Bing for web searching. Bing can also be used as a calculator and unit converter for arithmetic queries, or a world clock for time-related queries.
 3. Ask Wolfram for reliable data and scientific computation.
 4. Ensure the accuracy of your final answer, while minimizing your number of queries and their lengths.`
 			gpt.SendMessage("SYSTEM: "+msg, updateChatID)
-			text = "ℹ️ Added system prompt\n\n" + msg
+			text = "ℹ️ Added system prompt:\n\n" + msg
 		default:
 			if strings.HasPrefix(cmd, "chat_") {
 				i, err := strconv.Atoi(cmd[5:])
