@@ -92,7 +92,7 @@ func main() {
 		case "help":
 			text = `/reset: clear the bot's memory of this conversation.
 /verbose: switch on the verbose mode of the bot ("/verbose off" to switch off).
-/ask_friends: allow the bot to ask Bing or Wolfram Alpha before giving an answer ("/ask_friends off" to disable).
+/ask_friends: allow the bot to ask Bing or Wolfram Alpha before giving an answer.
 /system <message>: send a system prompt to the bot.
 /temper <value>: set the model temperature (in the range [0.0, 2.0]).`
 		case "start":
@@ -120,12 +120,13 @@ func main() {
 			gpt.Conversations[updateChatID] = conversation
 			text = fmt.Sprintf("ℹ️ verbose = %s", strconv.FormatBool(conversation.Verbose))
 		case "ask_friends":
-			msg := `You are allowed to send queries to your friends Bing and Wolfram Alpha before giving an answer. Whenever you are unable to answer a question or not sure about your answer, you should ask for help.
+			msg := `You are allowed to send queries to your friends Python, Bing, and Wolfram Alpha before giving an answer. Whenever you are unable to answer a question or not sure about your answer, you should ask for help.
 
-1. A query must start with a line ` + "`🤖 I ask (Bing|Wolfram):`" + `. A message may contain at most one query. If no query, the message is regarded as your final answer.
-2. Ask Bing for web searching. Bing can also be used as a calculator and unit converter for arithmetic queries, or a world clock for time-related queries.
-3. Ask Wolfram for reliable data and scientific computation.
-4. Ensure the accuracy of your final answer, while minimizing your number of queries and their lengths.`
+1. A query must start with ` + "`🤖 I ask (Python|Bing|Wolfram):`" + `. A message may contain at most one query. Each query should have a simple structure, or it's likely to fail. If no query, the message is regarded as your final answer.
+2. A Python interpreter is available to you for interaction. After the prefix, the query should be Python code wrapped by ` + "\\`\\`\\`" + `. The state of the interpreter is persistent across queries. The response will be the stdout of the interpreter.
+3. Ask Bing for up-to-date web searching and time query.
+4. Ask Wolfram for reliable data and scientific computation. Try to make the query structured and precise.
+5. Ensure the accuracy of your final answer, while minimizing your number of queries and their lengths.`
 			gpt.SendMessage("/system "+msg, updateChatID)
 			text = "ℹ️ Added system prompt:\n\n" + msg
 		case "chats":

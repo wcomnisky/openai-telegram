@@ -2,8 +2,9 @@ package tgbot
 
 import (
 	"log"
+	"math"
 	"os"
-	"regexp"
+	"strings"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -46,39 +47,69 @@ func (b *Bot) Stop() {
 }
 
 func (b *Bot) Send(chatID int64, replyTo int, text string) (tgbotapi.Message, error) {
-	text = markdown.EnsureFormatting(text)
-	maxlen := 3072
-	space := regexp.MustCompile(`\s`)
-	i0, i1 := 0, 0
-	var m tgbotapi.Message
-	var err error
-	for i1 < len(text) {
-		i0 = i1
-		if i0 > 0 {
-			time.Sleep(b.editInterval * time.Second)
-			k := space.FindIndex([]byte(text[i0-72 : i0]))
-			if k != nil { // try to split at a space
-				i0 = i0 - 72 + k[1]
-			}
-		}
-		i1 = i0 + maxlen
-		if i1 >= len(text) {
-			i1 = len(text)
+	lines := strings.Split(text, "\n")
+	maxlen := 2000
+	// space := regexp.MustCompile(`\n`)
+	// i0, i1 := 0, 0
+	block_closed := true
+	content := ""
+	var msg tgbotapi.Message
+	for i := 0; i <= len(lines); i++ {
+		var line string
+		if i < len(lines) {
+			line = lines[i]
 		} else {
-			k := space.FindIndex([]byte(text[i1-72 : i1]))
-			if k != nil { // try to split at a space
-				i1 = i1 - 72 + k[1]
-			}
+			line = ""
 		}
-		msg := tgbotapi.NewMessage(chatID, text[i0:i1])
-		msg.ParseMode = "Markdown"
-		msg.ReplyToMessageID = replyTo
-		m, err = b.api.Send(msg)
-		if err != nil {
-			return m, err
+
+		if len(line) > maxlen {
+			line = line[:maxlen-3] + "..."
+			log.Println("Truncated line")
+		}
+
+		if i == len(lines) || len(content)+len(line) > maxlen {
+			content, block_closed = markdown.EnsureFormatting(content, block_closed)
+			c := tgbotapi.NewMessage(chatID, content)
+			c.ParseMode = "Markdown"
+			c.ReplyToMessageID = replyTo
+			msg, err := b.api.Send(c)
+			content = line
+			if err != nil {
+				return msg, err
+			}
+		} else {
+			content += "\n" + line
 		}
 	}
-	return m, nil
+	return msg, nil
+
+	// for i1 < len(text) {
+	// 	i0 = i1
+	// 	if i0 > 0 {
+	// 		time.Sleep(b.editInterval * time.Second)
+	// 		k := space.FindIndex([]byte(text[i0-72 : i0]))
+	// 		if k != nil { // try to split at a space
+	// 			i0 = i0 - 72 + k[1]
+	// 		}
+	// 	}
+	// 	i1 = i0 + maxlen
+	// 	if i1 >= len(text) {
+	// 		i1 = len(text)
+	// 	} else {
+	// 		k := space.FindIndex([]byte(text[i1-72 : i1]))
+	// 		if k != nil { // try to split at a space
+	// 			i1 = i1 - 72 + k[1]
+	// 		}
+	// 	}
+	// 	msg := tgbotapi.NewMessage(chatID, text[i0:i1])
+	// 	msg.ParseMode = "Markdown"
+	// 	msg.ReplyToMessageID = replyTo
+	// 	m, err = b.api.Send(msg)
+	// 	if err != nil {
+	// 		return m, err
+	// 	}
+	// }
+	// return m, nil
 }
 
 // func (b *Bot) SendEdit(chatID int64, messageID int, text string) error {
@@ -127,12 +158,13 @@ func (b *Bot) SendAsLiveOutput(chatID int64, replyTo int, feed chan string) {
 			continue
 		}
 
-		log.Println("Sending message to chat")
 		message, err := b.Send(chatID, replyTo, queue[0])
 
 		if err != nil {
 			log.Fatalf("Couldn't send message: %v", err)
 		} else {
+			l := math.Min(30, float64(len(queue[0])))
+			log.Printf("Sent message: %s...", queue[0][:int(l)])
 			queue = queue[1:]
 			lastEditTime = time.Now()
 			replyTo = message.MessageID

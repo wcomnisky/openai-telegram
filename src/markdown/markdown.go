@@ -5,26 +5,42 @@ import (
 	"strings"
 )
 
-func EnsureFormatting(text string) string {
-	numDelimiters := strings.Count(text, "```")
+func EnsureFormatting(text string, block_closed bool) (string, bool) {
+	segs := strings.Split(text, "```")
 
-	if (numDelimiters % 2) == 1 {
-		text += "```"
+	if !block_closed { // prepend "```" because the previous code block was not closed
+		segs = append([]string{""}, segs...)
+		block_closed = true
 	}
 
-	segs := strings.Split(text, "```")
+	if (len(segs) % 2) == 0 { // append "```" because the current code block is not closed
+		segs = append(segs, "")
+		block_closed = false
+	}
+
+	pat1 := regexp.MustCompile(`\*\*(.*?)\*\*`)
+	pat2 := regexp.MustCompile(`__(.*?)__`)
+	pat3 := regexp.MustCompile(`([*_])`)
+
 	for i, seg := range segs {
 		if (i % 2) == 0 { // not in code block
-			if n := strings.Count(seg, "`"); (n % 2) == 1 {
-				segs[i] += "`"
+			ss := strings.Split(seg, "`") // WARN: does not handle escaped backticks
+			if (len(ss) % 2) == 1 {       // backticks balanced
+				for j, s := range ss {
+					if (j % 2) == 0 { // not in inline code
+						// replace **...** with <strong>...</strong>
+						s = pat1.ReplaceAllString(s, `<strong>$1</strong>`)
+						// replace __...__ with <em>...</em>
+						s = pat2.ReplaceAllString(s, `<em>$1</em>`)
+						// replace * with \* and _ with \_
+						ss[j] = pat3.ReplaceAllString(s, `\$1`)
+					}
+				}
 			}
+			segs[i] = strings.Join(ss, "`")
 		}
 	}
+
 	text = strings.Join(segs, "```")
-
-	// replace * with \* and _ with \_
-	re := regexp.MustCompile(`([*_])`)
-	text = re.ReplaceAllString(text, `\$1`)
-
-	return text
+	return text, block_closed
 }
