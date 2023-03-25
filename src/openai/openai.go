@@ -101,6 +101,23 @@ func (c *GPT4) GetConversation(chatID int64) Conversation {
 	return convo
 }
 
+func (c *GPT4) AddMessage(chatID int64, message string, role string) Conversation {
+	convo := c.GetConversation(chatID)
+	convo.Messages = append(convo.Messages, Message{Role: role, Content: message})
+	c.Conversations[chatID] = convo
+	return convo
+}
+
+func (c *GPT4) DelMessage(chatID int64, index int) Conversation {
+	convo := c.GetConversation(chatID)
+	if index < 0 {
+		index = len(convo.Messages) + index
+	}
+	convo.Messages = append(convo.Messages[:index], convo.Messages[index+1:]...)
+	c.Conversations[chatID] = convo
+	return convo
+}
+
 func (t *Conversation) GetConversationInfo() string {
 	return fmt.Sprintf("Length: %d\nTokens: %d\nDuration: %.0f s",
 		len(t.Messages), t.TotalTokens, time.Since(t.Time).Seconds())
@@ -124,22 +141,24 @@ func (c *GPT4) InitClient() sse.Client {
 	return client
 }
 
-func (c *GPT4) MakeRequest(messages []Message) Request {
-	return Request{
+func (c *GPT4) SendRequest(client sse.Client, chatID int64) error {
+	req := Request{
 		Model:       c.ModelName,
-		Messages:    messages,
+		Messages:    c.GetConversation(chatID).Messages,
 		Temperature: c.Temperature,
 	}
+	err := client.Connect(req, "POST", map[string]string{})
+	if err != nil {
+		log.Println(err)
+	}
+	return err
 }
 
 func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) {
 	var role string
-	var msg Message
 	var err error
 
 	client := c.InitClient()
-
-	convo := c.Conversations[tgChatID]
 
 	// a channel to send the responses back to the main thread
 	feed := make(chan string)
@@ -162,38 +181,36 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 		role = "user"
 	}
 
-	msg = Message{Role: role, Content: message}
-	convo.Messages = append(convo.Messages, msg)
-
 	if role != "user" {
-		c.Conversations[tgChatID] = convo
 		return nil, nil
 	}
 
+	convo := c.AddMessage(tgChatID, message, role)
 	tokens_thresh := int(math.Round(MAX_TOKENS * 0.9))
 
 	if convo.TotalTokens > tokens_thresh {
 		log.Println("Conversation getting too long, deleted earliest responses")
-		for i, c := 0, 0; i < len(convo.Messages)-6 && c < 2; i++ {
-			if msg.Role == "assistant" {
-				convo.Messages = append(convo.Messages[:i], convo.Messages[i+1:]...)
-				c++
+		for i, j := 0, 0; i < len(convo.Messages)-6 && j < 2; i++ {
+			if convo.Messages[i].Role == "assistant" {
+				convo = c.DelMessage(tgChatID, i)
+				j++
 			}
 		}
 	}
 
 	for tries := 1; len(convo.Messages) > 0; tries++ {
 		// post HTTP request
-		err = client.Connect(c.MakeRequest(convo.Messages), "POST", map[string]string{})
-		if err != nil {
+		if err := c.SendRequest(client, tgChatID); err != nil {
 			exc := strings.Contains(err.Error(), "400 Bad Request") && convo.TotalTokens > 4000
 			// if max tokens exceeded, delete earliest messages and try again
-			if tries < 2 && exc {
+			if tries < 3 && exc {
 				log.Println(convo.GetConversationInfo())
-				convo.Messages = convo.Messages[2:]
+				convo = c.DelMessage(tgChatID, 0)
 				info := "ℹ️ Max tokens exceeded, deleted earliest messages"
 				log.Println(info)
-				go func() { feed <- info }()
+				if convo.Verbose {
+					go func() { feed <- info }()
+				}
 			} else {
 				return nil, err
 			}
@@ -203,8 +220,12 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 	}
 
 	var wait = 0
-	var friend string
+	var plugin string
 	var query string
+	var ans string
+
+	var py_pat = regexp.MustCompile("🤖\n```python\n([\\s\\S]*)\n```")
+	var q_pat = regexp.MustCompile(`🤖 I ask (\w+)\s+([\s\S]*)`)
 
 	go func() {
 		defer close(feed)
@@ -222,37 +243,52 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 				}
 
 				var res MessageResponse
-				err = json.Unmarshal(chunk, &res)
-				if err != nil {
+				if err := json.Unmarshal(chunk, &res); err != nil {
 					log.Printf("Couldn't unmarshal message response: %v", err)
 					return
 				}
 
 				if len(res.Choices) > 0 {
+					log.Printf("Got response from GPT4:\n%v", res)
+
 					msg := res.Choices[0].Message
-					msg.Content = strings.ReplaceAll(msg.Content, "\r\n", "\n")
-					log.Printf("Got response from GPT4:\n%s", string(chunk))
+					text := msg.Content
+					text = strings.ReplaceAll(text, "\r\n", "\n")
 
-					re := regexp.MustCompile(`🤖 I ask (\w+)\s+([\s\S]*)`)
-					m := re.FindStringSubmatch(msg.Content)
+					m := py_pat.FindStringSubmatch(text)
 
-					if wait == 2 && convo.Messages[len(convo.Messages)-1].Content == QUERY_FAILED {
+					if m != nil {
+						plugin = "Python"
+						code := m[1]
+						ans, err := c.Python.Send(code)
+						if err != nil {
+							log.Println(err)
+							return
+						}
+						ans = fmt.Sprintf("🤖\n```\n%s\n```", ans)
+						log.Println(ans)
+						feed <- ans
+						c.AddMessage(tgChatID, ans, "assistant")
+						c.SendRequest(client, tgChatID)
+					}
+
+					m = q_pat.FindStringSubmatch(text)
+
+					if wait == 2 && ans == QUERY_FAILED {
 						wait = 0 // try a new query
 					}
 
 					if wait == 2 { // summarize the query response
-						s := re.Split(msg.Content, 2)[0] // avoid a new query in the summary
-						msg.Content = fmt.Sprintf("🤖 %s answers\n\n%s", friend, s)
+						s := q_pat.Split(text, 2)[0] // avoid a new query in the summary
+						text = fmt.Sprintf("🤖 %s answers\n\n%s", plugin, s)
 
 						// replace the last query response with its summary
-						convo.Messages[len(convo.Messages)-1] = msg
+						c.DelMessage(tgChatID, -1)
+						c.AddMessage(tgChatID, text, "assistant")
 						wait = 1 // wait for the next message (a final answer or a new query)
 
 						// send a new request with the updated messages
-						req := c.MakeRequest(convo.Messages)
-						err = client.Connect(req, "POST", map[string]string{})
-						if err != nil {
-							log.Println(err)
+						if c.SendRequest(client, tgChatID) != nil {
 							return
 						}
 					} else {
@@ -272,18 +308,13 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 					c.Conversations[tgChatID] = convo
 
 					if len(m) > 0 {
-						friend = m[1]
+						plugin = m[1]
 						query = m[2]
-						var ans string
 
-						if friend == "Bing" {
+						if plugin == "Bing" {
 							ans, err = c.Bing.Send(query)
-						} else if friend == "Wolfram" {
+						} else if plugin == "Wolfram" {
 							ans, err = c.Wolfram.Send(query)
-						} else if friend == "Python" {
-							pat := regexp.MustCompile("```(?:python)?\\s+([\\s\\S]*?)\\s+```")
-							code := pat.FindStringSubmatch(query)[1]
-							ans, err = c.Python.Send(code)
 						} else {
 							continue
 						}
@@ -292,31 +323,20 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 							return
 						}
 
-						if friend == "Python" {
-							ans = fmt.Sprintf("🤖 %s answers\n\n%s", friend, ans)
-							feed <- ans
-						} else if len(ans) == 0 {
+						if len(ans) == 0 {
 							ans = QUERY_FAILED
 							feed <- ans
 						} else { // ask GPT to summarize the query response
-							ans = fmt.Sprintf("Summarize the response from %s:\n%s", friend, ans)
+							ans = fmt.Sprintf("Summarize the response from %s:\n%s", plugin, ans)
 						}
 						log.Println(ans)
 
-						convo.Messages = append(convo.Messages,
-							Message{Role: "user", Content: ans})
-						req := c.MakeRequest(convo.Messages)
-						err = client.Connect(req, "POST", map[string]string{})
-						if err != nil {
-							log.Println(err)
+						c.AddMessage(tgChatID, ans, "user")
+						if c.SendRequest(client, tgChatID) != nil {
 							return
 						}
 
-						if friend == "Python" {
-							wait = 1 // wait for a new message
-						} else {
-							wait = 2 // wait for 2 more responses (the summary and a new message)
-						}
+						wait = 2 // wait for 2 more responses (the summary and a new message)
 					}
 				}
 			}

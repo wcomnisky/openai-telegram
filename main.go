@@ -89,7 +89,8 @@ func main() {
 /verbose: switch on the verbose mode of the bot ("/verbose off" to switch off).
 /ask_friends: allow the bot to ask Bing or Wolfram Alpha before giving an answer.
 /system <message>: send a system prompt to the bot.
-/temper <value>: set the model temperature (in the range [0.0, 2.0]).`
+/temper <value>: set the model temperature (in the range [0.0, 2.0]).
+/py <code>: run Python code in the bot's Python interpreter.`
 		case "start":
 			text = "Send a message to start talking with GPT4. Use /help to find available commands."
 		case "reset":
@@ -114,14 +115,14 @@ func main() {
 			}
 			gpt.Conversations[updateChatID] = conversation
 			text = fmt.Sprintf("ℹ️ verbose = %s", strconv.FormatBool(conversation.Verbose))
-		case "ask_friends":
-			msg := `You are allowed to send queries to your friends Python, Bing, and Wolfram Alpha before giving an answer. Whenever you are unable to answer a question or not sure about your answer, you should ask for help.
+		case "load_plugins":
+			msg := `You are allowed to interact with external plugins like Python, Bing, and Wolfram Alpha before giving an answer. Make use of the plugins whenever you are unable to answer a question or not sure about your answer.
 
-1. A query must start with ` + "`🤖 I ask (Python|Bing|Wolfram)\\n\\n`" + `. A message may contain at most one query. Each query should have a simple structure, or it's likely to fail. If no query, the message is regarded as your final answer.
-2. A Python interpreter is available to you for interaction. After the prefix, the query should be Python code wrapped by ` + "\\`\\`\\`" + `. The state of the interpreter is persistent across queries.
+1. A Python interpreter is available to you for interaction. To send an input to it, the message must follow the format ` + "🤖\\n\\`\\`\\`python\\n<code>\\n\\`\\`\\`" + `. The code block can contain multiple lines like in IPython.
+2. You can query Bing and Wolfram by a message starting with ` + "`🤖 I ask (Bing|Wolfram)\\n\\n`" + `. You message should not contain more than one query. Each query should have a simple structure, or it's likely to fail.
 3. Ask Bing for real-time web searching and time query.
-4. Ask Wolfram for reliable data and scientific computation. Try to make the query structured and precise.
-5. Ensure the accuracy of your final answer, while minimizing your number of queries and their lengths.`
+4. Ask Wolfram for reliable data and scientific computation. Try to make the query structured or in the Wolfram Language.
+5. Ensure the accuracy of your final answer, while minimizing your number of queries.`
 			gpt.SendMessage("/system "+msg, updateChatID)
 			text = "ℹ️ Added system prompt:\n\n" + msg
 		case "chats":

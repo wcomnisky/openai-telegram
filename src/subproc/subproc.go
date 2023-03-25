@@ -53,14 +53,12 @@ func (p *Subproc) Send(input string) (string, error) {
 	}
 	_, err := p.In.Write(append([]byte(input), byte(4))) // U+0004 = EOT
 	if err != nil {
-		log.Fatal(err)
 		return "", err
 	}
 	p.Inputs = append(p.Inputs, input)
 	output, err := p.Out.ReadString(byte(4)) // U+0004 = EOT
 	output = strings.TrimSpace(output[:len(output)-1])
 	if err != nil {
-		log.Fatal(err)
 		return "", err
 	}
 	p.Outputs = append(p.Outputs, output)
