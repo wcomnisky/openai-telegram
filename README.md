@@ -9,6 +9,7 @@ Go CLI to fuels a Telegram bot that lets you interact with [GPT4](https://openai
 Clone this repository and run `go build` in its root directory. 
 
 After you download the file, extract it into a folder and open the `env.example` file with a text editor and fill in your credentials. 
+
 - `TELEGRAM_TOKEN`: Your Telegram Bot token
   - Follow [this guide](https://core.telegram.org/bots/tutorial#obtain-your-bot-token) to create a bot and get the token.
 - `OPENAI_KEY`: your OpenAI API key. You will need to be invited by OpenAI to have access to the GPT4 model. 
@@ -19,6 +20,7 @@ After you download the file, extract it into a folder and open the `env.example`
 - `EDIT_WAIT_SECONDS` (Optional): Amount of seconds to wait between edits
   - This is set to `1` by default, but you can increase if you start getting a lot of `Too Many Requests` errors.
 - Save the file, and rename it to `.env`.
+
 > **Note** Make sure you rename the file to _exactly_ `.env`! The program won't work otherwise.
 
 Finally, run `./openai-telegram`.
@@ -29,6 +31,61 @@ Directly send your message and wait for the reply!
 In addition, add "SYSTEM:" before your message to set the system information of your GPT-4 bot. 
 
 Commands:
+
 - /start: start the bot
 - /help: get help information
-- /reset: clear the conversation history 
+- /reset: clear the conversation history
+
+## TODO
+
+### Plugins
+
+- Python console
+- General HTTP request
+- Bing Search
+- Google Search
+- Google Maps
+- Google Play
+- Gmail
+- YouTube
+- Stack Overflow
+- Wolfram Alpha
+- Twitter
+- Facebook
+- Amazon
+- Slack
+- Discord
+- Notion
+- Expedia
+- Zapier?
+- Speak (text-to-speech)
+- FiscalNote
+- Yahoo! Finance
+- KAYAK?
+
+#### Plugin syntax
+
+- Bot:
+  - Input: 🤖 => {{interface}}\n```\n{{input}}\n```
+  - Output: 🤖 <= {{interface}}\n```\n{{output}}\n```
+- User:
+  - Input:
+    - /{{interface}}\s+{{input}} (shorthand)
+    - 👨 => {{interface}}\n```\n{{input}}\n``` (recorded form)
+  - Output (by bot):
+    - 👨 <= {{interface}}\n```\n{{output}}\n```
+
+#### Plugin workflow
+
+- bot <=> plugin
+  1. 🤖 => {{interface}}\n```\n{{input}}\n```
+  2. 🤖 <= {{interface}}\n```\n{{output}}\n```
+  3. ... (repeat)
+  4. {{final_answer}}
+- user <=> plugin
+  1. User: /{{interface}}\s+{{input}}
+  2. Bot: 👨 <= {{interface}}\n```\n{{output}}\n```
+
+### Save and load conversation history
+
+JSON format
