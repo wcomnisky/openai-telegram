@@ -1,5 +1,6 @@
 import sys
 import code
+import time
 from importlib import import_module
 from RestrictedPython import safe_globals # , compile_restricted
 
@@ -15,6 +16,7 @@ safe_import = {
 def end_of_message():
     sys.stdout.write(chr(4))
     sys.stdout.flush()
+    time.sleep(1)
     
 def read_line():
     buf = []
