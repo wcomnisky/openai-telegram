@@ -35,7 +35,7 @@ func (c *API) InitClient() sse.Client {
 	return client
 }
 
-func (c *API) SendQuery(query string) (string, error) {
+func (c *API) Send(query string) (string, error) {
 	client := c.InitClient()
 	params := map[string]string{
 		"input":  query,

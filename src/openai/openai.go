@@ -12,6 +12,7 @@ import (
 	"github.com/tztsai/openai-telegram/src/bing"
 	"github.com/tztsai/openai-telegram/src/config"
 	"github.com/tztsai/openai-telegram/src/sse"
+	"github.com/tztsai/openai-telegram/src/subproc"
 	"github.com/tztsai/openai-telegram/src/wolfram"
 )
 
@@ -36,6 +37,7 @@ type GPT4 struct {
 	Temperature   float32
 	Bing          *bing.API
 	Wolfram       *wolfram.API
+	Python        *subproc.Subproc
 }
 
 type Message struct {
@@ -78,7 +80,12 @@ func Init(config *config.EnvConfig) *GPT4 {
 		Temperature:   1.2,
 		Bing:          bing.Init(config),
 		Wolfram:       wolfram.Init(config),
+		Python:        subproc.Init(config.PythonPath, "src/subproc/console.py"),
 	}
+}
+
+func (c *GPT4) Close() {
+	c.Python.Close()
 }
 
 func (c *GPT4) ResetConversation(chatID int64) {
@@ -140,6 +147,17 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 	if strings.HasPrefix(message, "/system ") {
 		role = "system"
 		message = message[8:]
+	} else if strings.HasPrefix(message, "/py ") {
+		role = "assistant"
+		code := message[4:]
+		ans, err := c.Python.Send(code)
+		if err != nil {
+			log.Println(err)
+			return nil, err
+		}
+		go func() { feed <- ans }()
+		message = fmt.Sprintf("```python\n>>> %s\n%s```",
+			strings.ReplaceAll(code, "\n", "\n... "), ans)
 	} else {
 		role = "user"
 	}
@@ -147,7 +165,7 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 	msg = Message{Role: role, Content: message}
 	convo.Messages = append(convo.Messages, msg)
 
-	if role == "system" {
+	if role != "user" {
 		c.Conversations[tgChatID] = convo
 		return nil, nil
 	}
@@ -185,6 +203,8 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 	}
 
 	var wait = 0
+	var friend string
+	var query string
 
 	go func() {
 		defer close(feed)
@@ -213,7 +233,7 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 					msg.Content = strings.ReplaceAll(msg.Content, "\r\n", "\n")
 					log.Printf("Got response from GPT4:\n%s", string(chunk))
 
-					re := regexp.MustCompile(`🤖 I ask (\w+):\s+(.*)`)
+					re := regexp.MustCompile(`🤖 I ask (\w+)\s+([\s\S]*)`)
 					m := re.FindStringSubmatch(msg.Content)
 
 					if wait == 2 && convo.Messages[len(convo.Messages)-1].Content == QUERY_FAILED {
@@ -222,7 +242,7 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 
 					if wait == 2 { // summarize the query response
 						s := re.Split(msg.Content, 2)[0] // avoid a new query in the summary
-						msg.Content = fmt.Sprintf("🤖 I found:\n\n%s", s)
+						msg.Content = fmt.Sprintf("🤖 %s answers\n\n%s", friend, s)
 
 						// replace the last query response with its summary
 						convo.Messages[len(convo.Messages)-1] = msg
@@ -252,14 +272,18 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 					c.Conversations[tgChatID] = convo
 
 					if len(m) > 0 {
-						friend := m[1]
-						query := m[2]
+						friend = m[1]
+						query = m[2]
 						var ans string
 
 						if friend == "Bing" {
-							ans, err = c.Bing.SendQuery(query)
+							ans, err = c.Bing.Send(query)
 						} else if friend == "Wolfram" {
-							ans, err = c.Wolfram.SendQuery(query)
+							ans, err = c.Wolfram.Send(query)
+						} else if friend == "Python" {
+							pat := regexp.MustCompile("```(?:python)?\\s+([\\s\\S]*?)\\s+```")
+							code := pat.FindStringSubmatch(query)[1]
+							ans, err = c.Python.Send(code)
 						} else {
 							continue
 						}
@@ -268,11 +292,13 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 							return
 						}
 
-						// ask GPT to summarize the query response
-						if len(ans) == 0 {
+						if friend == "Python" {
+							ans = fmt.Sprintf("🤖 %s answers\n\n%s", friend, ans)
+							feed <- ans
+						} else if len(ans) == 0 {
 							ans = QUERY_FAILED
 							feed <- ans
-						} else {
+						} else { // ask GPT to summarize the query response
 							ans = fmt.Sprintf("Summarize the response from %s:\n%s", friend, ans)
 						}
 						log.Println(ans)
@@ -285,7 +311,12 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 							log.Println(err)
 							return
 						}
-						wait = 2 // wait for 2 more responses (the summary and a new message)
+
+						if friend == "Python" {
+							wait = 1 // wait for a new message
+						} else {
+							wait = 2 // wait for 2 more responses (the summary and a new message)
+						}
 					}
 				}
 			}

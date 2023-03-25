@@ -12,8 +12,6 @@ import (
 
 	"github.com/tztsai/openai-telegram/src/config"
 	"github.com/tztsai/openai-telegram/src/openai"
-
-	// "github.com/tztsai/openai-telegram/src/session"
 	"github.com/tztsai/openai-telegram/src/tgbot"
 )
 
@@ -56,6 +54,7 @@ func main() {
 			updateMessageID = update.Message.MessageID
 			updateUserID    = update.Message.From.ID
 			conversation    = gpt.GetConversation(updateChatID)
+			cmd             = update.Message.Command()
 		)
 
 		if len(envConfig.TelegramID) != 0 && !envConfig.HasTelegramID(updateUserID) {
@@ -64,20 +63,17 @@ func main() {
 			continue
 		}
 
-		if !update.Message.IsCommand() {
+		if !update.Message.IsCommand() || cmd == "py" {
+			if cmd == "py" {
+				updateText = "/py " + strings.TrimSpace(updateText[3:])
+			}
+
 			log.Println("Received message:\n", updateText)
 
 			bot.SendTyping(updateChatID)
 
 			feed, err := gpt.SendMessage(updateText, updateChatID)
-			// if conversation.Verbose {
-			// 	for _, info := range infos {
-			// 		if len(info) > 2048 {
-			// 			info = info[:2048] + "..."
-			// 		}
-			// 		bot.Send(updateChatID, updateMessageID, "ℹ️ "+info)
-			// 	}
-			// }
+
 			if err != nil {
 				bot.Send(updateChatID, updateMessageID, fmt.Sprintf("❌ %v", err))
 			} else if feed != nil {
@@ -87,7 +83,6 @@ func main() {
 		}
 
 		var text string
-		cmd := update.Message.Command()
 		switch cmd {
 		case "help":
 			text = `/reset: clear the bot's memory of this conversation.
@@ -122,9 +117,9 @@ func main() {
 		case "ask_friends":
 			msg := `You are allowed to send queries to your friends Python, Bing, and Wolfram Alpha before giving an answer. Whenever you are unable to answer a question or not sure about your answer, you should ask for help.
 
-1. A query must start with ` + "`🤖 I ask (Python|Bing|Wolfram):`" + `. A message may contain at most one query. Each query should have a simple structure, or it's likely to fail. If no query, the message is regarded as your final answer.
-2. A Python interpreter is available to you for interaction. After the prefix, the query should be Python code wrapped by ` + "\\`\\`\\`" + `. The state of the interpreter is persistent across queries. The response will be the stdout of the interpreter.
-3. Ask Bing for up-to-date web searching and time query.
+1. A query must start with ` + "`🤖 I ask (Python|Bing|Wolfram)\\n\\n`" + `. A message may contain at most one query. Each query should have a simple structure, or it's likely to fail. If no query, the message is regarded as your final answer.
+2. A Python interpreter is available to you for interaction. After the prefix, the query should be Python code wrapped by ` + "\\`\\`\\`" + `. The state of the interpreter is persistent across queries.
+3. Ask Bing for real-time web searching and time query.
 4. Ask Wolfram for reliable data and scientific computation. Try to make the query structured and precise.
 5. Ensure the accuracy of your final answer, while minimizing your number of queries and their lengths.`
 			gpt.SendMessage("/system "+msg, updateChatID)

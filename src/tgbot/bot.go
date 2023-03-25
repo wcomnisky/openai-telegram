@@ -48,12 +48,11 @@ func (b *Bot) Stop() {
 
 func (b *Bot) Send(chatID int64, replyTo int, text string) (tgbotapi.Message, error) {
 	lines := strings.Split(text, "\n")
-	maxlen := 2000
-	// space := regexp.MustCompile(`\n`)
-	// i0, i1 := 0, 0
+	maxlen := 4096 // max length of a message
 	block_closed := true
 	content := ""
 	var msg tgbotapi.Message
+
 	for i := 0; i <= len(lines); i++ {
 		var line string
 		if i < len(lines) {
@@ -82,48 +81,7 @@ func (b *Bot) Send(chatID int64, replyTo int, text string) (tgbotapi.Message, er
 		}
 	}
 	return msg, nil
-
-	// for i1 < len(text) {
-	// 	i0 = i1
-	// 	if i0 > 0 {
-	// 		time.Sleep(b.editInterval * time.Second)
-	// 		k := space.FindIndex([]byte(text[i0-72 : i0]))
-	// 		if k != nil { // try to split at a space
-	// 			i0 = i0 - 72 + k[1]
-	// 		}
-	// 	}
-	// 	i1 = i0 + maxlen
-	// 	if i1 >= len(text) {
-	// 		i1 = len(text)
-	// 	} else {
-	// 		k := space.FindIndex([]byte(text[i1-72 : i1]))
-	// 		if k != nil { // try to split at a space
-	// 			i1 = i1 - 72 + k[1]
-	// 		}
-	// 	}
-	// 	msg := tgbotapi.NewMessage(chatID, text[i0:i1])
-	// 	msg.ParseMode = "Markdown"
-	// 	msg.ReplyToMessageID = replyTo
-	// 	m, err = b.api.Send(msg)
-	// 	if err != nil {
-	// 		return m, err
-	// 	}
-	// }
-	// return m, nil
 }
-
-// func (b *Bot) SendEdit(chatID int64, messageID int, text string) error {
-// 	text = markdown.EnsureFormatting(text)
-// 	msg := tgbotapi.NewEditMessageText(chatID, messageID, text)
-// 	msg.ParseMode = "Markdown"
-// 	if _, err := b.api.Send(msg); err != nil {
-// 		if err.Error() == "Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message" {
-// 			return nil
-// 		}
-// 		return err
-// 	}
-// 	return nil
-// }
 
 func (b *Bot) SendTyping(chatID int64) {
 	if _, err := b.api.Request(tgbotapi.NewChatAction(chatID, "typing")); err != nil {

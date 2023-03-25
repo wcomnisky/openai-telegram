@@ -15,6 +15,7 @@ type EnvConfig struct {
 	OpenAIKey       string  `mapstructure:"OPENAI_KEY"`
 	AzureKey        string  `mapstructure:"AZURE_KEY"`
 	WolframAppID    string  `mapstructure:"WOLFRAM_APPID"`
+	PythonPath      string  `mapstructure:"PYTHON_PATH"`
 	EditWaitSeconds int     `mapstructure:"EDIT_WAIT_SECONDS"`
 }
 
