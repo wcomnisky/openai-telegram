@@ -2,6 +2,7 @@ import sys
 import code
 import time
 import requests
+import requests
 from importlib import import_module
 from RestrictedPython import safe_globals # , compile_restricted
 
@@ -10,14 +11,15 @@ safe_import = {
     'itertools', 'functools', 'operator', 'collections', 
     'heapq', 'bisect', 'array', 'queue', 'threading', 'types',
     'typing', 'abc', 'contextlib', 'dataclasses', 'enum', 'copy',
+    'requests', 'bs4', 'flask', 'opencv', 'ntlk',
     'numbers', 'pprint', 'numpy', 'scipy', 'pandas', 'matplotlib',
     'sklearn', 'statsmodels', 'torch', 'tensorflow', 'keras',
 }
 
-def end_of_message():
-    sys.stdout.write(chr(4))
-    sys.stdout.flush()
-    time.sleep(1)
+def fetch(url, method='GET', headers=None, params=None, data=None, json=None):
+    response = requests.request(method, url, headers=headers, params=params, data=data, json=json)
+    response.raise_for_status() # raises exception if the status code is not 200 OK
+    return response.text
     
 def read_line():
     buf = []
@@ -41,6 +43,7 @@ class PythonConsole(code.InteractiveConsole):
             min=min, max=max, dict=dict, list=list, iter=iter,
             sum=sum, all=all, any=any, map=map, filter=filter,
             enumerate=enumerate, getattr=getattr, hasattr=hasattr,
+            fetch=fetch, time=time, requests=requests,
         )
 
     def safe_import(self, name, *args, **kwargs):
@@ -59,20 +62,24 @@ class PythonConsole(code.InteractiveConsole):
                 self.info(line)
                 if more and (end == chr(4) or not line[0].isspace()):
                     self.push('\n')  # end a block
+                if more and (end == chr(4) or not line[0].isspace()):
+                    self.push('\n')  # end a block
                 more = self.push(line)
                 if end == chr(4):  # EOT
                     if more:  # incomplete 
                         sys.stdout.write("\n... ")
-                    end_of_message()
+                    self.write(chr(4))
             except KeyboardInterrupt:
                 self.resetbuffer()
                 break
         self.info('Exited ' + self.__class__.__name__)
-        
+
     def write(self, data):
         sys.stdout.write(data)
+        sys.stdout.flush()
 
     def info(self, data):
         sys.stderr.write(data + '\n')
+
 
 PythonConsole().interact()
