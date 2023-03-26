@@ -38,6 +38,15 @@ Commands:
 
 ## TODO
 
+### Ideas
+
+- Sending files (text, image, audio, video, etc.)
+  - URL
+  - Download and send
+- Generate LaTeX figure using TikZ
+- Write music using the ABC notation
+  - Let the bot synthesize the music and send it as a voice message
+
 ### Plugins
 
 - Python console
@@ -66,25 +75,27 @@ Commands:
 #### Plugin syntax
 
 - Bot:
-  - Input: 🤖 => {{interface}}\n```\n{{input}}\n```
-  - Output: 🤖 <= {{interface}}\n```\n{{output}}\n```
+  - Input:
+    - 🤖 I ask {{interface}}\n\n{{input}}
+    - 🤖 I tell {{interface}}\n\n{{input}} (POST request)
+  - Output:
+    - 🤖 {{interface}} replies\n\n{{output}}
 - User:
   - Input:
-    - /{{interface}}\s+{{input}} (shorthand)
-    - 👨 => {{interface}}\n```\n{{input}}\n``` (recorded form)
+    - /{{interface}} {{input}}
   - Output (by bot):
-    - 👨 <= {{interface}}\n```\n{{output}}\n```
+    - 🤖 {{interface}} replies\n\n{{output}}
 
 #### Plugin workflow
 
 - bot <=> plugin
-  1. 🤖 => {{interface}}\n```\n{{input}}\n```
-  2. 🤖 <= {{interface}}\n```\n{{output}}\n```
+  1. 🤖 I ask {{interface}}\n\n{{input}}
+  2. 🤖 {{interface}} replies\n\n{{output}}
   3. ... (repeat)
   4. {{final_answer}}
 - user <=> plugin
-  1. User: /{{interface}}\s+{{input}}
-  2. Bot: 👨 <= {{interface}}\n```\n{{output}}\n```
+  1. /{{interface}} {{input}}
+  2. 🤖 {{interface}} replies\n\n{{output}}
 
 ### Save and load conversation history
 

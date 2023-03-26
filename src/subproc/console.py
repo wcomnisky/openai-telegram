@@ -1,6 +1,7 @@
 import sys
 import code
 import time
+import requests
 from importlib import import_module
 from RestrictedPython import safe_globals # , compile_restricted
 
@@ -36,8 +37,10 @@ class PythonConsole(code.InteractiveConsole):
         self.locals = safe_globals
         self.locals['__builtins__'].update(
             print=print, __import__=self.safe_import,
-            globals=lambda: self.locals, 
-            locals=locals, vars=vars
+            globals=lambda: self.locals, locals=locals, vars=vars,
+            min=min, max=max, dict=dict, list=list, iter=iter,
+            sum=sum, all=all, any=any, map=map, filter=filter,
+            enumerate=enumerate, getattr=getattr, hasattr=hasattr,
         )
 
     def safe_import(self, name, *args, **kwargs):
@@ -54,8 +57,8 @@ class PythonConsole(code.InteractiveConsole):
                 line, end = read_line()
                 if not line: continue
                 self.info(line)
-                if more and not line[0].isspace():
-                    self.push('\n')  # end a function definition
+                if more and (end == chr(4) or not line[0].isspace()):
+                    self.push('\n')  # end a block
                 more = self.push(line)
                 if end == chr(4):  # EOT
                     if more:  # incomplete 
@@ -65,6 +68,9 @@ class PythonConsole(code.InteractiveConsole):
                 self.resetbuffer()
                 break
         self.info('Exited ' + self.__class__.__name__)
+        
+    def write(self, data):
+        sys.stdout.write(data)
 
     def info(self, data):
         sys.stderr.write(data + '\n')
