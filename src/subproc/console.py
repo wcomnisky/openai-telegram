@@ -1,6 +1,7 @@
 import sys
 import code
 import time
+import requests
 from importlib import import_module
 from RestrictedPython import safe_globals # , compile_restricted
 
@@ -9,9 +10,15 @@ safe_import = {
     'itertools', 'functools', 'operator', 'collections', 
     'heapq', 'bisect', 'array', 'queue', 'threading', 'types',
     'typing', 'abc', 'contextlib', 'dataclasses', 'enum', 'copy',
+    'requests', 'bs4', 'flask', 'opencv', 'ntlk',
     'numbers', 'pprint', 'numpy', 'scipy', 'pandas', 'matplotlib',
     'sklearn', 'statsmodels', 'torch', 'tensorflow', 'keras',
 }
+
+def request(url, method='GET', headers=None, params=None, data=None, json=None):
+    response = requests.request(method, url, headers=headers, params=params, data=data, json=json)
+    response.raise_for_status() # raises exception if the status code is not 200 OK
+    return response.json()
 
 def end_of_message():
     sys.stdout.write(chr(4))
@@ -37,7 +44,10 @@ class PythonConsole(code.InteractiveConsole):
         self.locals['__builtins__'].update(
             print=print, __import__=self.safe_import,
             globals=lambda: self.locals, 
-            locals=locals, vars=vars
+            locals=locals, vars=vars, eval=request,
+            min=min, max=max, dict=dict, list=list, iter=iter,
+            sum=sum, all=all, any=any, map=map, filter=filter,
+            enumerate=enumerate, getattr=getattr, hasattr=hasattr,
         )
 
     def safe_import(self, name, *args, **kwargs):
@@ -54,8 +64,8 @@ class PythonConsole(code.InteractiveConsole):
                 line, end = read_line()
                 if not line: continue
                 self.info(line)
-                if more and not line[0].isspace():
-                    self.push('\n')  # end a function definition
+                if more and (end == chr(4) or not line[0].isspace()):
+                    self.push('\n')  # end a block
                 more = self.push(line)
                 if end == chr(4):  # EOT
                     if more:  # incomplete 
@@ -66,7 +76,12 @@ class PythonConsole(code.InteractiveConsole):
                 break
         self.info('Exited ' + self.__class__.__name__)
 
+
+    def write(self, data):
+        sys.stdout.write(data)
+
     def info(self, data):
         sys.stderr.write(data + '\n')
+
 
 PythonConsole().interact()

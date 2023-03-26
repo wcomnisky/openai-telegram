@@ -158,6 +158,7 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 		go func() { feed <- ans }()
 		message = fmt.Sprintf("```python\n>>> %s\n%s```",
 			strings.ReplaceAll(code, "\n", "\n... "), ans)
+		return nil, nil
 	} else {
 		role = "user"
 	}
