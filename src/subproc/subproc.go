@@ -9,6 +9,8 @@ import (
 	"strings"
 )
 
+const ETX = "\x03"
+
 type Subproc struct {
 	Inputs  []string
 	Outputs []string

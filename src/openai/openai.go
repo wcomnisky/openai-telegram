@@ -85,7 +85,7 @@ func Init(config *config.EnvConfig) *GPT4 {
 }
 
 func (c *GPT4) Close() {
-	c.Python.Close()
+	go c.Python.Close()
 }
 
 func (c *GPT4) ResetConversation(chatID int64) {
