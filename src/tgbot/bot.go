@@ -128,5 +128,12 @@ func (b *Bot) SendAsLiveOutput(chatID int64, replyTo int, feed chan string) {
 			replyTo = message.MessageID
 		}
 	}
+}
 
+func (b *Bot) SendPhoto(chatID int64, photoPath string) {
+	path := tgbotapi.FilePath(photoPath)
+	photo := tgbotapi.NewPhoto(chatID, path)
+	if _, err := b.api.Send(photo); err != nil {
+		log.Printf("Couldn't send photo: %v", err)
+	}
 }

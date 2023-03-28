@@ -62,7 +62,6 @@ func (c *API) Send(query string) (string, error) {
 	return ExtractResponse(res), nil
 }
 
-// TODO shorten the response
 func ExtractResponse(resp map[string]map[string]any) string {
 	res := resp["queryresult"]
 	ans, ok := res["pods"]

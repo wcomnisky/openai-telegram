@@ -69,6 +69,6 @@ func (p *Subproc) Send(input string) (string, error) {
 }
 
 func (p *Subproc) Close() {
-	p.In.Write([]byte{byte(3)}) // U+0003 = ETX
+	p.In.Write([]byte{ETX})
 	p.Cmd.Wait()
 }

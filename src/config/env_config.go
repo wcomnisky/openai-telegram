@@ -11,7 +11,9 @@ import (
 
 type EnvConfig struct {
 	TelegramID      []int64 `mapstructure:"TELEGRAM_ID"`
+	AllowOthers     bool    `mapstructure:"ALLOW_OTHER_USERS"`
 	TelegramToken   string  `mapstructure:"TELEGRAM_TOKEN"`
+	DefaultModel    string  `mapstructure:"DEFAULT_MODEL"`
 	OpenAIKey       string  `mapstructure:"OPENAI_KEY"`
 	AzureKey        string  `mapstructure:"AZURE_KEY"`
 	WolframAppID    string  `mapstructure:"WOLFRAM_APPID"`
@@ -28,7 +30,10 @@ WOLFRAM_APPID=
 AZURE_KEY=
 EDIT_WAIT_SECONDS=`
 
-func (e *EnvConfig) HasTelegramID(id int64) bool {
+func (e *EnvConfig) AllowTelegramID(id int64) bool {
+	if e.AllowOthers {
+		return true
+	}
 	for _, v := range e.TelegramID {
 		if v == id {
 			return true

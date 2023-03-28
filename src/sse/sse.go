@@ -1,6 +1,7 @@
 package sse
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
@@ -9,8 +10,12 @@ import (
 	"log"
 	"math/big"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
+
+	"github.com/PuerkitoBio/goquery"
+	"golang.org/x/net/html"
 )
 
 type Client struct {
@@ -58,7 +63,6 @@ func (c *Client) Connect(method string, params map[string]string, data any) erro
 
 	for i := 0; i < 5; i++ {
 		http := &http.Client{}
-		log.Println("Sending request to OpenAI")
 		resp, err = http.Do(req)
 		if err != nil {
 			break
@@ -96,4 +100,70 @@ func (c *Client) Connect(method string, params map[string]string, data any) erro
 	}()
 
 	return nil
+}
+
+func (c *Client) FeedForward(handler func(data []byte, feed chan string) (bool, error)) chan string {
+	var feed = make(chan string)
+	var err error
+
+	go func() {
+		defer close(feed)
+		var done bool
+
+		for data := range c.EventChannel {
+			if len(data) == 0 {
+				if done {
+					return
+				} else {
+					continue
+				}
+			}
+			done, err = handler(data, feed)
+			if err != nil {
+				feed <- fmt.Sprintf("❌ %v", err)
+				log.Println(err)
+				return
+			}
+		}
+	}()
+
+	return feed
+}
+
+func (c *Client) ExtractResponse(maxLen int) chan string {
+	return c.FeedForward(func(data []byte, feed chan string) (bool, error) {
+		doc, _ := goquery.NewDocumentFromReader(bytes.NewReader(data))
+		doc.Find("script, meta, style").Each(func(i int, el *goquery.Selection) {
+			el.Remove()
+		})
+		var s = doc.Find("body")
+		var buf bytes.Buffer
+
+		// Slightly optimized vs calling Each: no single selection object created
+		var f func(n *html.Node)
+		f = func(n *html.Node) {
+			if n.Type == html.TextNode {
+				buf.WriteString(n.Data + "\t")
+			}
+			if n.FirstChild != nil {
+				for c := n.FirstChild; c != nil; c = c.NextSibling {
+					f(c)
+				}
+			}
+		}
+
+		for _, n := range s.Nodes {
+			f(n)
+		}
+
+		content := buf.String()
+		if len(content) > maxLen {
+			content = content[:maxLen-3] + "..."
+		}
+		re := regexp.MustCompile(`\n\n+`)
+		content = re.ReplaceAllString(content, "\n\n")
+
+		feed <- content
+		return true, nil
+	})
 }

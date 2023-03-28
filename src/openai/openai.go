@@ -15,7 +15,7 @@ import (
 	"github.com/tztsai/openai-telegram/src/wolfram"
 )
 
-const API_URL = "https://api.openai.com/v1/chat/completions"
+const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
 const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36"
 
 const MAX_TOKENS = 8192
@@ -68,13 +68,9 @@ type MessageResponse struct {
 	} `json:"choices"`
 }
 
-// type ChatResponse struct {
-// 	Message string
-// }
-
 func Init(config *config.EnvConfig) *GPT4 {
 	return &GPT4{
-		ModelName:     "gpt-4",
+		ModelName:     config.DefaultModel,
 		SessionToken:  config.OpenAIKey,
 		Conversations: make(map[int64]Conversation),
 		Temperature:   1.2,
@@ -85,6 +81,7 @@ func Init(config *config.EnvConfig) *GPT4 {
 }
 
 func (c *GPT4) Close() {
+	log.Println("Closing GPT4 client...")
 	go c.Python.Close()
 }
 
@@ -134,12 +131,14 @@ func (c *GPT4) GetChatIDs() []int64 {
 	return keys
 }
 
-func (c *GPT4) InitClient() sse.Client {
-	client := sse.Init(API_URL)
+func (c *GPT4) InitClient(url string) sse.Client {
+	client := sse.Init(url)
 	client.Headers = map[string]string{
-		"User-Agent":    USER_AGENT,
-		"Authorization": fmt.Sprintf("Bearer %s", c.SessionToken),
-		"Content-Type":  "application/json",
+		"User-Agent":   USER_AGENT,
+		"Content-Type": "application/json",
+	}
+	if url == OPENAI_API_URL {
+		client.Headers["Authorization"] = fmt.Sprintf("Bearer %s", c.SessionToken)
 	}
 	return client
 }
@@ -212,8 +211,6 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 	var role string
 	var err error
 
-	client := c.InitClient()
-
 	if strings.HasPrefix(message, "/system ") {
 		role = "system"
 		message = message[8:]
@@ -236,6 +233,13 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 			ans, err = c.Bing.Send(query)
 		} else if plugin == "wolf" {
 			ans, err = c.Wolfram.Send(query)
+		} else if plugin == "curl" {
+			client := c.InitClient(query)
+			err = client.Connect("GET", map[string]string{}, nil)
+			if err != nil {
+				return nil, err
+			}
+			return client.ExtractResponse(4096 * 2), nil
 		} else {
 			return nil, fmt.Errorf("unknown plugin: %s", plugin)
 		}
@@ -255,122 +259,101 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 	}
 
 	// send HTTP POST request
+	client := c.InitClient(OPENAI_API_URL)
 	err = c.SendRequestAvoidTokensExceeded(client, tgChatID, 2)
 	if err != nil {
 		return nil, err
 	}
 
-	var wait = 0
 	var plugin string
 	var query string
 	var ans string
 
-	var query_pat = regexp.MustCompile("🤖 I ask (\\w+)\\s+```\\w*\n([\\s\\S]*)```")
+	query_pat := regexp.MustCompile("🤖 I ask (\\w+)\\s+```\\w*\n([\\s\\S]*)```")
 
-	// open the channel to send messages to the Telegram user
-	feed := make(chan string)
-
-	go func() {
-		defer close(feed)
-		for {
-			select {
-			case chunk, ok := <-client.EventChannel:
-				if !ok {
-					return
-				} else if len(chunk) == 0 {
-					if wait > 0 {
-						continue // wait for the next response
-					} else {
-						log.Println("Message feed closed")
-						return
-					}
-				}
-
-				var res MessageResponse
-				if err = json.Unmarshal(chunk, &res); err != nil {
-					log.Printf("Couldn't unmarshal message response: %v", err)
-					feed <- "❌ Failed to decode response from GPT4"
-					return
-				}
-
-				wait = 0 // received waited response
-
-				if len(res.Choices) > 0 {
-					log.Printf("Got response from GPT4:\n%v\n", res)
-
-					msg := res.Choices[0].Message
-					text := msg.Content
-					text = strings.ReplaceAll(text, "\r\n", "\n")
-
-					// calculate tokens
-					tok_in, tok_out := res.Usage.PromptTokens, res.Usage.CompletionTokens
-					total_tokens := tok_in + tok_out
-
-					// update chat history
-					convo := c.AddMessage(tgChatID, text, "assistant", total_tokens)
-					log.Println(convo.GetConversationInfo())
-
-					feed <- text
-					if convo.Verbose {
-						feed <- fmt.Sprintf("ℹ️ Tokens: %d => %d", tok_in, tok_out)
-					}
-
-					// match the query pattern
-					match := query_pat.FindStringSubmatch(text)
-
-					if len(match) > 0 {
-						plugin = match[1]
-						query = match[2]
-
-						log.Printf("Sending query to %s: %s", plugin, query)
-
-						start_time := time.Now()
-
-						if plugin == "Bing" {
-							ans, err = c.Bing.Send(query)
-						} else if plugin == "Wolfram" {
-							ans, err = c.Wolfram.Send(query)
-						} else if plugin == "Python" {
-							ans, err = c.Python.Send(query)
-						} else {
-							continue
-						}
-
-						if err != nil {
-							log.Println(err)
-							feed <- "❌ Failed to get response from " + plugin
-							return
-						}
-
-						if plugin != "Python" && ans == "" {
-							ans = QUERY_FAILED
-						} else {
-							ans = fmt.Sprintf("🤖 %s answers\n\n%s", plugin, ans)
-						}
-
-						log.Println(ans)
-						feed <- ans
-
-						c.AddMessage(tgChatID, ans, "user", 0)
-
-						time_elapsed := time.Since(start_time)
-						t := 1*time.Second - time_elapsed
-						if t > 0 {
-							time.Sleep(t)
-						} // minimum 1 second interval between requests
-
-						err = c.SendRequestAvoidTokensExceeded(client, tgChatID, 2)
-						if err != nil {
-							log.Println(err)
-							return
-						}
-
-						wait = 1 // wait for a new response
-					}
-				}
+	// feed messages to the Telegram user
+	feed := client.FeedForward(
+		func(data []byte, feed chan string) (bool, error) {
+			var res MessageResponse
+			if err = json.Unmarshal(data, &res); err != nil {
+				log.Printf("Couldn't unmarshal message response: %v", err)
+				feed <- "❌ Failed to decode response from GPT4"
+				return true, err
 			}
-		}
-	}()
 
-	return feed, err
+			if len(res.Choices) > 0 {
+				log.Printf("Got response from GPT4:\n%v\n", res)
+
+				msg := res.Choices[0].Message
+				text := msg.Content
+				text = strings.ReplaceAll(text, "\r\n", "\n")
+
+				// calculate tokens
+				tok_in, tok_out := res.Usage.PromptTokens, res.Usage.CompletionTokens
+				total_tokens := tok_in + tok_out
+
+				// update chat history
+				convo := c.AddMessage(tgChatID, text, "assistant", total_tokens)
+				log.Println(convo.GetConversationInfo())
+
+				feed <- text
+				if convo.Verbose {
+					feed <- fmt.Sprintf("ℹ️ Tokens: %d => %d", tok_in, tok_out)
+				}
+
+				// match the query pattern
+				match := query_pat.FindStringSubmatch(text)
+
+				if len(match) > 0 {
+					plugin = match[1]
+					query = match[2]
+
+					log.Printf("Sending query to %s: %s", plugin, query)
+
+					start_time := time.Now()
+
+					if plugin == "Bing" {
+						ans, err = c.Bing.Send(query)
+					} else if plugin == "Wolfram" {
+						ans, err = c.Wolfram.Send(query)
+					} else if plugin == "Python" {
+						ans, err = c.Python.Send(query)
+					} else {
+						return true, fmt.Errorf("unknown plugin: %s", plugin)
+					}
+
+					if err != nil {
+						return true, err
+					}
+
+					if plugin != "Python" && ans == "" {
+						ans = QUERY_FAILED
+					} else {
+						ans = fmt.Sprintf("🤖 %s answers\n\n%s", plugin, ans)
+					}
+
+					log.Println(ans)
+					feed <- ans
+
+					c.AddMessage(tgChatID, ans, "user", 0)
+
+					time_elapsed := time.Since(start_time)
+					t := 1*time.Second - time_elapsed
+					if t > 0 {
+						time.Sleep(t)
+					} // minimum 1 second interval between requests
+
+					err = c.SendRequestAvoidTokensExceeded(client, tgChatID, 2)
+					if err != nil {
+						return true, err
+					}
+					return false, nil // wait for the next response
+				}
+				return true, nil
+			}
+			return true, fmt.Errorf("no response from GPT4")
+		},
+	)
+
+	return feed, nil
 }
