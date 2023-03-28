@@ -130,7 +130,7 @@ func (c *Client) FeedForward(handler func(data []byte, feed chan string) (bool, 
 	return feed
 }
 
-func (c *Client) ExtractResponse(maxLen int) chan string {
+func (c *Client) ExtractHtml(maxLen int) chan string {
 	return c.FeedForward(func(data []byte, feed chan string) (bool, error) {
 		doc, _ := goquery.NewDocumentFromReader(bytes.NewReader(data))
 		doc.Find("script, meta, style").Each(func(i int, el *goquery.Selection) {

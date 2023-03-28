@@ -239,7 +239,7 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 			if err != nil {
 				return nil, err
 			}
-			return client.ExtractResponse(4096 * 2), nil
+			return client.ExtractHtml(4096 * 2), nil
 		} else {
 			return nil, fmt.Errorf("unknown plugin: %s", plugin)
 		}
@@ -324,7 +324,7 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 						if err != nil {
 							ans = ""
 						} else {
-							ans = <-client.ExtractResponse(8000)
+							ans = <-client.ExtractHtml(8000)
 						}
 					} else {
 						return true, fmt.Errorf("unknown plugin: %s", plugin)
