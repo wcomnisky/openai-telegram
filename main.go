@@ -32,7 +32,6 @@ func main() {
 	}
 
 	gpt := openai.Init(envConfig)
-	log.Println("Started GPT-4")
 
 	bot, err := tgbot.New(envConfig.TelegramToken,
 		time.Duration(envConfig.EditWaitSeconds*int(time.Second)))

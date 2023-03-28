@@ -226,7 +226,7 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 		// directly interact with a plugin
 		var ans string
 		var err error
-		if plugin == "py" {
+		if plugin == "py" || plugin == "python" {
 			ans, err = c.Python.Send(query)
 		} else if plugin == "sh" {
 			ans, err = c.Shell.Send(query)
@@ -306,20 +306,20 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 				match := query_pat.FindStringSubmatch(text)
 
 				if len(match) > 0 {
-					plugin = strings.ToLower(match[1])
+					plugin = match[1]
 					query = match[2]
 
 					log.Printf("Sending query to %s: %s", plugin, query)
 
 					start_time := time.Now()
 
-					if plugin == "bing" {
+					if plugin == "Bing" {
 						ans, err = c.Bing.Send(query)
-					} else if plugin == "wolfram" {
+					} else if plugin == "Wolfram" {
 						ans, err = c.Wolfram.Send(query)
-					} else if plugin == "python" {
+					} else if plugin == "Python" {
 						ans, err = c.Python.Send(query)
-					} else if plugin == "web" {
+					} else if plugin == "Web" {
 						client := c.InitClient(query)
 						err = client.Connect("GET", map[string]string{}, nil)
 						if err != nil {
@@ -345,7 +345,7 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 
 					log.Println(ans)
 
-					if convo.Verbose || plugin == "python" || plugin == "bing" {
+					if convo.Verbose || plugin == "Python" || plugin == "Bing" {
 						if len(ans) > MESSAGE_MAX_LENGTH {
 							ans = ans[:MESSAGE_MAX_LENGTH-3] + "..."
 						}
