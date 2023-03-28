@@ -51,11 +51,17 @@ Interact with a plugin:
   - Let the bot synthesize the music and send it as a voice message
 - Write a post on Twitter and Reddit, starting with "Hello world!"
   - Write a reply under an Elon Musk's tweet
+- Integrate GPT into Jupyter Notebook
+  - GePyter
 
 ### Plugins
 
 - Python console
-- General HTTP request
+- Web console
+  - JavaScript
+  - HTML
+  - CSS
+- HTTP request
 - Bing Search
 - Google Search
 - Google Maps
@@ -76,6 +82,12 @@ Interact with a plugin:
 - FiscalNote
 - Yahoo! Finance
 - KAYAK?
+- SVG
+  - input: code
+  - output: image
+- LaTeX
+  - Math
+  - TikZ
 
 #### Plugin syntax
 
