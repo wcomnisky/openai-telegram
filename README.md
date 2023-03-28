@@ -63,6 +63,7 @@ Interact with a plugin:
   - CSS
 - HTTP request
 - Bing Search
+- Wikipedia
 - Google Search
 - Google Maps
 - Google Play
@@ -82,7 +83,7 @@ Interact with a plugin:
 - FiscalNote
 - Yahoo! Finance
 - KAYAK?
-- SVG
+- SVG 
   - input: code
   - output: image
 - LaTeX

@@ -269,7 +269,7 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 	var query string
 	var ans string
 
-	query_pat := regexp.MustCompile("🤖 I ask (\\w+)\\s+```\\w*\n([\\s\\S]*)```")
+	query_pat := regexp.MustCompile("🤖\\s*I ask (\\w+)\\s*```\\w*\\s+([\\s\\S]*)```")
 
 	// feed messages to the Telegram user
 	feed := client.FeedForward(
