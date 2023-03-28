@@ -51,17 +51,17 @@ func (c *API) Send(query string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return ExtractResponse(res), nil
+	return ExtractResponse(res, 7), nil
 }
 
-func ExtractResponse(resp map[string]any) string {
+func ExtractResponse(resp map[string]any, maxPages int) string {
 	for _, k := range [3]string{"computation", "timeZone", "webPages"} {
 		a, ok := resp[k]
 		if ok {
 			if k == "webPages" {
 				pages := a.(map[string]any)["value"].([]interface{})
 				s := []string{}
-				for _, page := range pages[:7] {
+				for _, page := range pages[:maxPages] {
 					s = append(s, FormatPageSnippet(page.(map[string]any)))
 				}
 				return strings.Join(s, "\n")

@@ -19,6 +19,7 @@ const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
 const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36"
 
 const MAX_TOKENS = 8192
+const MESSAGE_MAX_LENGTH = 4096
 
 const QUERY_FAILED = "Query failed. Try a new one."
 
@@ -239,7 +240,7 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 			if err != nil {
 				return nil, err
 			}
-			return client.ExtractHtml(4096 * 2), nil
+			return client.ExtractHtml(MESSAGE_MAX_LENGTH), nil
 		} else {
 			return nil, fmt.Errorf("unknown plugin: %s", plugin)
 		}
@@ -324,7 +325,7 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 						if err != nil {
 							ans = ""
 						} else {
-							ans = <-client.ExtractHtml(8000)
+							ans = <-client.ExtractHtml(8192)
 						}
 					} else {
 						return true, fmt.Errorf("unknown plugin: %s", plugin)
@@ -340,10 +341,16 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 						ans = fmt.Sprintf("🤖 %s answers\n\n%s", plugin, ans)
 					}
 
-					log.Println(ans)
-					feed <- ans
-
 					c.AddMessage(tgChatID, ans, "user", 0)
+
+					log.Println(ans)
+
+					if convo.Verbose || plugin == "python" || plugin == "bing" {
+						if len(ans) > MESSAGE_MAX_LENGTH {
+							ans = ans[:MESSAGE_MAX_LENGTH-3] + "..."
+						}
+						feed <- ans
+					}
 
 					time_elapsed := time.Since(start_time)
 					t := 1*time.Second - time_elapsed
