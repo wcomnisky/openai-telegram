@@ -9,7 +9,8 @@ import (
 	"strings"
 )
 
-const ETX = "\x03"
+const ETX = '\x03'
+const EOT = '\x04'
 
 type Subproc struct {
 	Inputs  []string
@@ -19,8 +20,8 @@ type Subproc struct {
 	Out     *bufio.Reader
 }
 
-func Init(path string, args ...string) *Subproc {
-	cmd := exec.Command(path, args...)
+func Init(command string, args ...string) *Subproc {
+	cmd := exec.Command(command, args...)
 	cmd.Stderr = os.Stderr
 
 	si, err := cmd.StdinPipe()
@@ -53,12 +54,12 @@ func (p *Subproc) Send(input string) (string, error) {
 	if len(input) == 0 {
 		return "", nil
 	}
-	_, err := p.In.Write(append([]byte(input), byte(4))) // U+0004 = EOT
+	_, err := p.In.Write(append([]byte(input), ETX))
 	if err != nil {
 		return "", err
 	}
 	p.Inputs = append(p.Inputs, input)
-	output, err := p.Out.ReadString(byte(4)) // U+0004 = EOT
+	output, err := p.Out.ReadString(ETX)
 	output = strings.TrimSpace(output[:len(output)-1])
 	if err != nil {
 		return "", err

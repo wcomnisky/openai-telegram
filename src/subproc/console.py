@@ -20,10 +20,10 @@ safe_modules = {
 }
 
 def safe_import(name, *args, **kwargs):
-        if name in safe_modules:
-            return import_module(name)
-        else:
-            raise ImportError(f'import {name} is not allowed')
+    if name in safe_modules:
+        return import_module(name)
+    else:
+        raise ImportError(f'import {name} is not allowed')
 
 def fetch(url, method='GET', headers=None, params=None, data=None, json=None):
     response = requests.request(method, url, headers=headers, params=params, data=data, json=json)
@@ -65,13 +65,12 @@ class PythonConsole(code.InteractiveConsole):
         while 1:
             try:
                 line, end = read_line()
+                self.info(f"Received: {bytes(line+end, 'ascii')}")
             except KeyboardInterrupt:
                 self.resetbuffer()
                 break
             
-            if not line: continue
-            
-            if more and (end == ETX or not line[0].isspace()):
+            if more and (end == ETX or line and not line[0].isspace()):
                 self.push('\n')  # end an indent block
 
             more = self.push(line)

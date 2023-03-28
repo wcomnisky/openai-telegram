@@ -3,6 +3,7 @@ package wolfram
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/tztsai/openai-telegram/src/config"
 	"github.com/tztsai/openai-telegram/src/sse"
@@ -44,7 +45,7 @@ func (c *API) Send(query string) (string, error) {
 		"appid":  c.AppID,
 	}
 
-	err := client.Connect(nil, "GET", params)
+	err := client.Connect("GET", params, nil)
 	if err != nil {
 		return "", err
 	}
@@ -61,12 +62,54 @@ func (c *API) Send(query string) (string, error) {
 	return ExtractResponse(res), nil
 }
 
+// TODO shorten the response
 func ExtractResponse(resp map[string]map[string]any) string {
 	res := resp["queryresult"]
 	ans, ok := res["pods"]
 	if !ok {
 		return ""
 	} else {
-		return fmt.Sprint(ans)
+		pods := []string{}
+		for _, pod := range ans.([]interface{}) {
+			pods = append(pods, FormatWolframPod(pod.(map[string]any)))
+		}
+		return strings.Join(pods, "")
 	}
+}
+
+func FormatWolframPod(pod map[string]any) string {
+	if pod["error"].(bool) {
+		return "(Error)"
+	}
+	res := "# " + pod["title"].(string) + "\n"
+	subpods := []string{}
+	for _, subpod := range pod["subpods"].([]interface{}) {
+		s := subpod.(map[string]any)["plaintext"].(string)
+		if s != "" {
+			subpods = append(subpods, s+"\n")
+		}
+	}
+	if len(subpods) > 0 {
+		res += strings.Join(subpods, "")
+	} else {
+		return ""
+	}
+	infos, ok := pod["infos"]
+	if ok {
+		tmp, ok := infos.([]interface{})
+		if !ok {
+			text, ok := infos.(map[string]any)["text"]
+			if ok {
+				res += text.(string) + "\n"
+			}
+		} else {
+			for _, info := range tmp {
+				text, ok := info.(map[string]any)["text"]
+				if ok {
+					res += text.(string) + "\n"
+				}
+			}
+		}
+	}
+	return res + "\n"
 }

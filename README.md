@@ -36,6 +36,9 @@ Commands:
 - /help: get help information
 - /reset: clear the conversation history
 
+Interact with a plugin:
+`!<plugin_name> <input>`
+
 ## TODO
 
 ### Ideas
@@ -46,6 +49,8 @@ Commands:
 - Generate LaTeX figure using TikZ
 - Write music using the ABC notation
   - Let the bot synthesize the music and send it as a voice message
+- Write a post on Twitter and Reddit, starting with "Hello world!"
+  - Write a reply under an Elon Musk's tweet
 
 ### Plugins
 

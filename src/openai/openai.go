@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"math"
 	"regexp"
 	"strings"
 	"time"
@@ -38,6 +37,7 @@ type GPT4 struct {
 	Bing          *bing.API
 	Wolfram       *wolfram.API
 	Python        *subproc.Subproc
+	Shell         *subproc.Subproc
 }
 
 type Message struct {
@@ -101,9 +101,12 @@ func (c *GPT4) GetConversation(chatID int64) Conversation {
 	return convo
 }
 
-func (c *GPT4) AddMessage(chatID int64, message string, role string) Conversation {
+func (c *GPT4) AddMessage(chatID int64, message string, role string, tokens int) Conversation {
 	convo := c.GetConversation(chatID)
 	convo.Messages = append(convo.Messages, Message{Role: role, Content: message})
+	if tokens > 0 {
+		convo.TotalTokens = tokens
+	}
 	c.Conversations[chatID] = convo
 	return convo
 }
@@ -119,7 +122,7 @@ func (c *GPT4) DelMessage(chatID int64, index int) Conversation {
 }
 
 func (t *Conversation) GetConversationInfo() string {
-	return fmt.Sprintf("Length: %d\nTokens: %d\nDuration: %.0f s",
+	return fmt.Sprintf("Length: %d  Tokens: %d  Duration: %.0f s",
 		len(t.Messages), t.TotalTokens, time.Since(t.Time).Seconds())
 }
 
@@ -147,11 +150,62 @@ func (c *GPT4) SendRequest(client sse.Client, chatID int64) error {
 		Messages:    c.GetConversation(chatID).Messages,
 		Temperature: c.Temperature,
 	}
-	err := client.Connect(req, "POST", map[string]string{})
+	err := client.Connect("POST", map[string]string{}, req)
 	if err != nil {
 		log.Println(err)
 	}
 	return err
+}
+
+func (c *GPT4) SendRequestAvoidTokensExceeded(client sse.Client, chatID int64, retries int) error {
+	var err error
+	var convo = c.GetConversation(chatID)
+
+	if convo.TotalTokens > MAX_TOKENS-1000 {
+		log.Println("Conversation getting too long, deleted earliest responses")
+		// delete at most 2 GPT's responses before 6 messages ago
+		for i, j := 0, 0; i < len(convo.Messages)-6 && j < 2; i++ {
+			if convo.Messages[i].Role == "assistant" {
+				convo = c.DelMessage(chatID, i)
+				j++
+			}
+		}
+	}
+
+	for tries := 1; len(convo.Messages) > 0; tries++ {
+		// send HTTP POST request
+		if err = c.SendRequest(client, chatID); err != nil {
+			// maybe max tokens exceeded, delete earliest messages and try again
+			if tries < retries && strings.Contains(err.Error(), "400 Bad Request") {
+
+				log.Println(convo.GetConversationInfo())
+
+				var i int
+				for i = 0; i < 3 && i < len(convo.Messages); i++ {
+					if convo.Messages[i].Role != "system" {
+						break
+					}
+				} // try to avoid deleting system messages
+				convo = c.DelMessage(chatID, i)
+
+				log.Println("Max tokens exceeded, deleted earliest messages")
+			} else {
+				return err
+			}
+		} else {
+			return nil
+		}
+	}
+	return err
+}
+
+func (c *GPT4) SendSingleMessage(message string) chan string {
+	feed := make(chan string)
+	go func() {
+		defer close(feed)
+		feed <- message
+	}()
+	return feed
 }
 
 func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) {
@@ -160,64 +214,50 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 
 	client := c.InitClient()
 
-	// a channel to send the responses back to the main thread
-	feed := make(chan string)
-
 	if strings.HasPrefix(message, "/system ") {
 		role = "system"
 		message = message[8:]
-	} else if strings.HasPrefix(message, "/py ") {
-		role = "assistant"
-		code := message[4:]
-		ans, err := c.Python.Send(code)
+	} else if strings.HasPrefix(message, "!") {
+		gs := regexp.MustCompile(`^!(\w+)\s+([\s\S]*)$`).FindStringSubmatch(message)
+		if len(gs) != 3 {
+			return nil, fmt.Errorf("invalid command: %s", message)
+		}
+		plugin := gs[1]
+		query := gs[2]
+
+		// directly interact with a plugin
+		var ans string
+		var err error
+		if plugin == "py" {
+			ans, err = c.Python.Send(query)
+		} else if plugin == "sh" {
+			ans, err = c.Shell.Send(query)
+		} else if plugin == "bing" {
+			ans, err = c.Bing.Send(query)
+		} else if plugin == "wolf" {
+			ans, err = c.Wolfram.Send(query)
+		} else {
+			return nil, fmt.Errorf("unknown plugin: %s", plugin)
+		}
 		if err != nil {
 			log.Println(err)
 			return nil, err
 		}
-		go func() { feed <- ans }()
-		message = fmt.Sprintf("```python\n>>> %s\n%s```",
-			strings.ReplaceAll(code, "\n", "\n... "), ans)
-		return nil, nil
+		return c.SendSingleMessage(ans), nil
 	} else {
 		role = "user"
 	}
+
+	c.AddMessage(tgChatID, message, role, 0)
 
 	if role != "user" {
 		return nil, nil
 	}
 
-	convo := c.AddMessage(tgChatID, message, role)
-	tokens_thresh := int(math.Round(MAX_TOKENS * 0.9))
-
-	if convo.TotalTokens > tokens_thresh {
-		log.Println("Conversation getting too long, deleted earliest responses")
-		for i, j := 0, 0; i < len(convo.Messages)-6 && j < 2; i++ {
-			if convo.Messages[i].Role == "assistant" {
-				convo = c.DelMessage(tgChatID, i)
-				j++
-			}
-		}
-	}
-
-	for tries := 1; len(convo.Messages) > 0; tries++ {
-		// post HTTP request
-		if err := c.SendRequest(client, tgChatID); err != nil {
-			exc := strings.Contains(err.Error(), "400 Bad Request") && convo.TotalTokens > 4000
-			// if max tokens exceeded, delete earliest messages and try again
-			if tries < 3 && exc {
-				log.Println(convo.GetConversationInfo())
-				convo = c.DelMessage(tgChatID, 0)
-				info := "ℹ️ Max tokens exceeded, deleted earliest messages"
-				log.Println(info)
-				if convo.Verbose {
-					go func() { feed <- info }()
-				}
-			} else {
-				return nil, err
-			}
-		} else {
-			break
-		}
+	// send HTTP POST request
+	err = c.SendRequestAvoidTokensExceeded(client, tgChatID, 2)
+	if err != nil {
+		return nil, err
 	}
 
 	var wait = 0
@@ -225,8 +265,10 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 	var query string
 	var ans string
 
-	var py_pat = regexp.MustCompile("🤖\n```python\n([\\s\\S]*)\n```")
-	var q_pat = regexp.MustCompile(`🤖 I ask (\w+)\s+([\s\S]*)`)
+	var query_pat = regexp.MustCompile("🤖 I ask (\\w+)\\s+```\\w*\n([\\s\\S]*)```")
+
+	// open the channel to send messages to the Telegram user
+	feed := make(chan string)
 
 	go func() {
 		defer close(feed)
@@ -237,107 +279,93 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 					return
 				} else if len(chunk) == 0 {
 					if wait > 0 {
-						continue
+						continue // wait for the next response
 					} else {
+						log.Println("Message feed closed")
 						return
 					}
 				}
 
 				var res MessageResponse
-				if err := json.Unmarshal(chunk, &res); err != nil {
+				if err = json.Unmarshal(chunk, &res); err != nil {
 					log.Printf("Couldn't unmarshal message response: %v", err)
+					feed <- "❌ Failed to decode response from GPT4"
 					return
 				}
 
+				wait = 0 // received waited response
+
 				if len(res.Choices) > 0 {
-					log.Printf("Got response from GPT4:\n%v", res)
+					log.Printf("Got response from GPT4:\n%v\n", res)
 
 					msg := res.Choices[0].Message
 					text := msg.Content
 					text = strings.ReplaceAll(text, "\r\n", "\n")
 
-					m := py_pat.FindStringSubmatch(text)
-
-					if m != nil {
-						plugin = "Python"
-						code := m[1]
-						ans, err := c.Python.Send(code)
-						if err != nil {
-							log.Println(err)
-							return
-						}
-						ans = fmt.Sprintf("🤖\n```\n%s\n```", ans)
-						log.Println(ans)
-						feed <- ans
-						c.AddMessage(tgChatID, ans, "assistant")
-						c.SendRequest(client, tgChatID)
-					}
-
-					m = q_pat.FindStringSubmatch(text)
-
-					if wait == 2 && ans == QUERY_FAILED {
-						wait = 0 // try a new query
-					}
-
-					if wait == 2 { // summarize the query response
-						s := q_pat.Split(text, 2)[0] // avoid a new query in the summary
-						text = fmt.Sprintf("🤖 %s answers\n\n%s", plugin, s)
-
-						// replace the last query response with its summary
-						c.DelMessage(tgChatID, -1)
-						c.AddMessage(tgChatID, text, "assistant")
-						wait = 1 // wait for the next message (a final answer or a new query)
-
-						// send a new request with the updated messages
-						if c.SendRequest(client, tgChatID) != nil {
-							return
-						}
-					} else {
-						convo.Messages = append(convo.Messages, msg)
-						wait = 0
-					}
-
-					feed <- msg.Content
-
+					// calculate tokens
 					tok_in, tok_out := res.Usage.PromptTokens, res.Usage.CompletionTokens
-					convo.TotalTokens = tok_in + tok_out
+					total_tokens := tok_in + tok_out
+
+					// update chat history
+					convo := c.AddMessage(tgChatID, text, "assistant", total_tokens)
 					log.Println(convo.GetConversationInfo())
 
+					feed <- text
 					if convo.Verbose {
 						feed <- fmt.Sprintf("ℹ️ Tokens: %d => %d", tok_in, tok_out)
 					}
-					c.Conversations[tgChatID] = convo
 
-					if len(m) > 0 {
-						plugin = m[1]
-						query = m[2]
+					// match the query pattern
+					match := query_pat.FindStringSubmatch(text)
+
+					if len(match) > 0 {
+						plugin = match[1]
+						query = match[2]
+
+						log.Printf("Sending query to %s: %s", plugin, query)
+
+						start_time := time.Now()
 
 						if plugin == "Bing" {
 							ans, err = c.Bing.Send(query)
 						} else if plugin == "Wolfram" {
 							ans, err = c.Wolfram.Send(query)
+						} else if plugin == "Python" {
+							ans, err = c.Python.Send(query)
 						} else {
 							continue
 						}
+
+						if err != nil {
+							log.Println(err)
+							feed <- "❌ Failed to get response from " + plugin
+							return
+						}
+
+						if plugin != "Python" && ans == "" {
+							ans = QUERY_FAILED
+						} else {
+							ans = fmt.Sprintf("🤖 %s answers\n\n%s", plugin, ans)
+						}
+
+						log.Println(ans)
+						feed <- ans
+
+						c.AddMessage(tgChatID, ans, "user", 0)
+
+						time_elapsed := time.Since(start_time)
+						t := 1*time.Second - time_elapsed
+						if t > 0 {
+							time.Sleep(t)
+						} // minimum 1 second interval between requests
+
+						err = c.SendRequestAvoidTokensExceeded(client, tgChatID, 2)
 						if err != nil {
 							log.Println(err)
 							return
 						}
 
-						if len(ans) == 0 {
-							ans = QUERY_FAILED
-							feed <- ans
-						} else { // ask GPT to summarize the query response
-							ans = fmt.Sprintf("Summarize the response from %s:\n%s", plugin, ans)
-						}
-						log.Println(ans)
-
-						c.AddMessage(tgChatID, ans, "user")
-						if c.SendRequest(client, tgChatID) != nil {
-							return
-						}
-
-						wait = 2 // wait for 2 more responses (the summary and a new message)
+						wait = 1 // wait for a new response
 					}
 				}
 			}

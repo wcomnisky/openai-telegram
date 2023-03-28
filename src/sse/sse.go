@@ -3,7 +3,6 @@ package sse
 import (
 	"crypto/rand"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -27,12 +26,12 @@ func Init(url string) Client {
 	}
 }
 
-func (c *Client) Connect(request any, method string, params map[string]string) error {
+func (c *Client) Connect(method string, params map[string]string, data any) error {
 	var body io.Reader
 	var err error
 
 	if method == "POST" {
-		bs, _ := json.Marshal(&request)
+		bs, _ := json.Marshal(&data)
 		body = strings.NewReader(string(bs))
 	} else {
 		body = nil
@@ -40,7 +39,7 @@ func (c *Client) Connect(request any, method string, params map[string]string) e
 
 	req, err := http.NewRequest(method, c.URL, body)
 	if err != nil {
-		return errors.New(fmt.Sprintf("failed to create request: %v", err))
+		return fmt.Errorf("failed to create request: %v", err)
 	}
 
 	if len(params) > 0 {
@@ -59,6 +58,7 @@ func (c *Client) Connect(request any, method string, params map[string]string) e
 
 	for i := 0; i < 5; i++ {
 		http := &http.Client{}
+		log.Println("Sending request to OpenAI")
 		resp, err = http.Do(req)
 		if err != nil {
 			break
@@ -76,7 +76,7 @@ func (c *Client) Connect(request any, method string, params map[string]string) e
 		return err
 	}
 	if resp.StatusCode != 200 {
-		return errors.New(fmt.Sprintf("failed to connect to SSE: %v", resp.Status))
+		return fmt.Errorf("failed to connect to SSE: %v", resp.Status)
 	}
 
 	go func() {
@@ -87,7 +87,7 @@ func (c *Client) Connect(request any, method string, params map[string]string) e
 			body, _ := ioutil.ReadAll(resp.Body)
 
 			if err != nil {
-				log.Println(errors.New(fmt.Sprintf("failed to decode event: %v", err)))
+				log.Println(fmt.Errorf("failed to decode event: %v", err))
 				break
 			}
 
