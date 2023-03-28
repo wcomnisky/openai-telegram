@@ -132,7 +132,7 @@ func (c *GPT4) GetChatIDs() []int64 {
 }
 
 func (c *GPT4) InitClient(url string) sse.Client {
-	client := sse.Init(url)
+	client := sse.Init(strings.TrimSpace(url))
 	client.Headers = map[string]string{
 		"User-Agent":   USER_AGENT,
 		"Content-Type": "application/json",
@@ -219,7 +219,7 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 		if len(gs) != 3 {
 			return nil, fmt.Errorf("invalid command: %s", message)
 		}
-		plugin := gs[1]
+		plugin := strings.ToLower(gs[1])
 		query := gs[2]
 
 		// directly interact with a plugin
@@ -233,7 +233,7 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 			ans, err = c.Bing.Send(query)
 		} else if plugin == "wolf" {
 			ans, err = c.Wolfram.Send(query)
-		} else if plugin == "curl" {
+		} else if plugin == "web" {
 			client := c.InitClient(query)
 			err = client.Connect("GET", map[string]string{}, nil)
 			if err != nil {
@@ -305,19 +305,27 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 				match := query_pat.FindStringSubmatch(text)
 
 				if len(match) > 0 {
-					plugin = match[1]
+					plugin = strings.ToLower(match[1])
 					query = match[2]
 
 					log.Printf("Sending query to %s: %s", plugin, query)
 
 					start_time := time.Now()
 
-					if plugin == "Bing" {
+					if plugin == "bing" {
 						ans, err = c.Bing.Send(query)
-					} else if plugin == "Wolfram" {
+					} else if plugin == "wolfram" {
 						ans, err = c.Wolfram.Send(query)
-					} else if plugin == "Python" {
+					} else if plugin == "python" {
 						ans, err = c.Python.Send(query)
+					} else if plugin == "web" {
+						client := c.InitClient(query)
+						err = client.Connect("GET", map[string]string{}, nil)
+						if err != nil {
+							ans = ""
+						} else {
+							ans = <-client.ExtractResponse(8000)
+						}
 					} else {
 						return true, fmt.Errorf("unknown plugin: %s", plugin)
 					}

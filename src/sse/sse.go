@@ -160,8 +160,8 @@ func (c *Client) ExtractResponse(maxLen int) chan string {
 		if len(content) > maxLen {
 			content = content[:maxLen-3] + "..."
 		}
-		re := regexp.MustCompile(`\n\n+`)
-		content = re.ReplaceAllString(content, "\n\n")
+		re := regexp.MustCompile(`(\s)(\s)\s*`)
+		content = re.ReplaceAllString(content, "$1$2")
 
 		feed <- content
 		return true, nil

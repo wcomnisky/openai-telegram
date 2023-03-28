@@ -34,7 +34,7 @@ def read_line():
     buf = []
     while 1:
         c = sys.stdin.read(1)
-        if c == EOT:
+        if not c or c == EOT:
             raise KeyboardInterrupt
         if c in (ETX, '\n'):
             break
