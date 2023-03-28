@@ -23,7 +23,7 @@ func Init(config *config.EnvConfig) *API {
 	return &API{
 		URL:    API_URL,
 		AppID:  config.WolframAppID,
-		Format: "plaintext",
+		Format: "image,plaintext",
 		Output: "JSON",
 	}
 }
@@ -52,7 +52,7 @@ func (c *API) Send(query string) (string, error) {
 
 	chunk, ok := <-client.EventChannel
 	if len(chunk) == 0 || !ok {
-		return "", fmt.Errorf("No response from WolframAlpha")
+		return "", fmt.Errorf("no response from WolframAlpha")
 	}
 	var res map[string]map[string]any
 	err = json.Unmarshal(chunk, &res)

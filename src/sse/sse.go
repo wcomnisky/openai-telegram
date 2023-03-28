@@ -133,7 +133,7 @@ func (c *Client) FeedForward(handler func(data []byte, feed chan string) (bool, 
 func (c *Client) ExtractHtml(maxLen int) chan string {
 	return c.FeedForward(func(data []byte, feed chan string) (bool, error) {
 		doc, _ := goquery.NewDocumentFromReader(bytes.NewReader(data))
-		doc.Find("script,meta,style,button,a,img,canvas,data,details,embed,footer,form,input,video,source,s,del,audio").Each(
+		doc.Find("script,meta,style,button,a,img,canvas,data,details,embed,footer,form,input,video,source,s,del,audio,iframe").Each(
 			func(i int, el *goquery.Selection) {
 				el.Remove()
 			})
@@ -167,4 +167,13 @@ func (c *Client) ExtractHtml(maxLen int) chan string {
 		feed <- content
 		return true, nil
 	})
+}
+
+func Fetch(url string) ([]byte, error) {
+	client := Init(url)
+	err := client.Connect("GET", map[string]string{}, nil)
+	if err != nil {
+		return nil, err
+	}
+	return <-client.EventChannel, nil
 }
