@@ -112,8 +112,13 @@ func main() {
 			gpt.SendMessage(updateText, updateChatID)
 			text = "ℹ️ Added system prompt"
 		case "model":
-			gpt.ModelName = strings.TrimSpace(updateText[7:])
-			text = fmt.Sprintf("ℹ️ Set model to %s", gpt.ModelName)
+			name := strings.TrimSpace(updateText[6:])
+			if len(name) == 0 {
+				text = "ℹ️ Current model: " + gpt.ModelName
+			} else {
+				gpt.ModelName = name
+				text = fmt.Sprintf("ℹ️ Set model to %s", gpt.ModelName)
+			}
 		case "temper":
 			t, err := strconv.ParseFloat(strings.TrimSpace(updateText[7:]), 64)
 			if err != nil {
