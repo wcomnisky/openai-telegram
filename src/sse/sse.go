@@ -133,10 +133,16 @@ func (c *Client) FeedForward(handler func(data []byte, feed chan string) (bool, 
 func (c *Client) ExtractHtml(maxLen int) chan string {
 	return c.FeedForward(func(data []byte, feed chan string) (bool, error) {
 		doc, _ := goquery.NewDocumentFromReader(bytes.NewReader(data))
-		doc.Find("script,meta,style,button,a,img,canvas,data,details,embed,footer,form,input,video,source,s,del,audio,iframe").Each(
+
+		doc.Find("a").Each(func(i int, el *goquery.Selection) {
+			el.ReplaceWithHtml(fmt.Sprintf("[%s](%s)",
+				strings.TrimSpace(el.Text()), el.AttrOr("href", "")))
+		})
+		doc.Find("script,meta,style,button,img,canvas,data,details,embed,footer,form,input,video,source,s,del,audio,iframe").Each(
 			func(i int, el *goquery.Selection) {
 				el.Remove()
 			})
+
 		var s = doc.Find("body")
 		var buf bytes.Buffer
 

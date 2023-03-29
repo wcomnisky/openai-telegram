@@ -358,12 +358,19 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 
 					log.Println(ans)
 
-					if convo.Verbose || plugin == "Python" || plugin == "Bing" {
-						if len(ans) > MESSAGE_MAX_LENGTH {
-							ans = ans[:MESSAGE_MAX_LENGTH-3] + "..."
+					if !convo.Verbose && len(ans) > 1024 {
+						if plugin == "Bing" {
+							ss := regexp.MustCompile(`\[.*?\]\(.*?\)`).FindAllString(ans, -1)
+							ans = strings.Join(ss, "\n")
+						} else {
+							ss := strings.Split(ans, "\n")
+							if len(ss) > 4 {
+								ss = append(append(ss[:2], "..."), ss[len(ss)-2:]...)
+								ans = strings.Join(ss, "\n")
+							}
 						}
-						feed <- ans
 					}
+					feed <- ans
 
 					time_elapsed := time.Since(start_time)
 					t := 1*time.Second - time_elapsed
