@@ -21,7 +21,7 @@ const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/
 const MAX_TOKENS = 8192
 const MESSAGE_MAX_LENGTH = 4096
 
-const QUERY_FAILED = "Query failed. Try a new one."
+const QUERY_FAILED = "Query failed. Try another query or plugin."
 
 type Conversation struct {
 	Messages    []Message
@@ -38,7 +38,7 @@ type GPT4 struct {
 	Bing          *bing.API
 	Wolfram       *wolfram.API
 	Python        *subproc.Subproc
-	Shell         *subproc.Subproc
+	// Shell         *subproc.Subproc
 }
 
 type Message struct {
@@ -203,7 +203,9 @@ func (c *GPT4) SendSingleMessage(message string) chan string {
 	feed := make(chan string)
 	go func() {
 		defer close(feed)
-		feed <- message
+		if len(message) > 0 {
+			feed <- message
+		}
 	}()
 	return feed
 }
@@ -229,7 +231,13 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 		if plugin == "py" || plugin == "python" {
 			ans, err = c.Python.Send(query)
 		} else if plugin == "sh" {
-			ans, err = c.Shell.Send(query)
+			args := strings.Split(query, " ")
+			p := subproc.Init(args[0], args[1:]...)
+			out, err := p.Out.ReadString('\x03')
+			if err != nil {
+				log.Println(err)
+			}
+			return c.SendSingleMessage(out), nil
 		} else if plugin == "bing" {
 			ans, err = c.Bing.Send(query)
 		} else if plugin == "wolf" {
@@ -323,7 +331,12 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 						client := c.InitClient(query)
 						err = client.Connect("GET", map[string]string{}, nil)
 						if err != nil {
-							ans = ""
+							if strings.Contains(err.Error(), "404 Not Found") {
+								ans = "404 Not Found"
+								err = nil
+							} else {
+								ans = ""
+							}
 						} else {
 							ans = <-client.ExtractHtml(8192)
 						}
@@ -338,7 +351,7 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 					if plugin != "Python" && ans == "" {
 						ans = QUERY_FAILED
 					} else {
-						ans = fmt.Sprintf("🤖 %s answers\n\n%s", plugin, ans)
+						ans = fmt.Sprintf("🤖 %s replies\n\n%s", plugin, ans)
 					}
 
 					c.AddMessage(tgChatID, ans, "user", 0)

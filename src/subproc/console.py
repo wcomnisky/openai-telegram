@@ -1,5 +1,6 @@
 import sys
 import code
+import builtins
 import requests
 import requests
 from importlib import import_module
@@ -48,15 +49,16 @@ class PythonConsole(code.InteractiveConsole):
     def __init__(self, namespace=None, filename="<console>"):
         super().__init__(namespace, filename)
         # self.compile = compile_restricted
-        self.locals = safe_globals
-        self.locals['__builtins__'].update(
-            print=print, __import__=safe_import, vars=vars,
-            globals=lambda: self.locals, locals=locals, 
-            min=min, max=max, dict=dict, list=list, iter=iter,
-            sum=sum, all=all, any=any, map=map, filter=filter,
-            enumerate=enumerate, getattr=getattr, hasattr=hasattr,
-            fetch=fetch, requests=requests,
-        )
+        # self.locals = safe_globals
+        # self.locals['__builtins__'].update(
+        #     print=print, __import__=safe_import, vars=vars,
+        #     globals=lambda: self.locals, locals=locals, 
+        #     min=min, max=max, dict=dict, list=list, iter=iter,
+        #     sum=sum, all=all, any=any, map=map, filter=filter,
+        #     enumerate=enumerate, getattr=getattr, hasattr=hasattr,
+        #     fetch=fetch, requests=requests,
+        # )
+        self.locals = {'__builtins__': vars(builtins), 'fetch': fetch}
 
     def interact(self):
         self.info('Started')
@@ -65,7 +67,6 @@ class PythonConsole(code.InteractiveConsole):
         while 1:
             try:
                 line, end = read_line()
-                self.info(f"Received: {bytes(line+end, 'ascii')}")
             except KeyboardInterrupt:
                 self.resetbuffer()
                 break
