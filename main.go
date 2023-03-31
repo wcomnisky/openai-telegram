@@ -167,7 +167,7 @@ func main() {
 		case "load":
 			filename := strings.TrimSpace(updateText[5:])
 			if len(filename) == 0 {
-				filename = fmt.Sprintf("history/chat_%d.json", updateChatID)
+				filename = fmt.Sprintf("chat_%d.json", updateChatID)
 			}
 			path := filepath.Join("history", filename)
 			err := gpt.Load(updateChatID, path)
