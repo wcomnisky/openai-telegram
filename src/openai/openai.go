@@ -74,7 +74,7 @@ func Init(config *config.EnvConfig) *GPT4 {
 		ModelName:     config.DefaultModel,
 		SessionToken:  config.OpenAIKey,
 		Conversations: make(map[int64]Conversation),
-		Temperature:   1.2,
+		Temperature:   1.0,
 		Bing:          bing.Init(config),
 		Wolfram:       wolfram.Init(config),
 		Python:        subproc.Init(config.PythonPath, "src/subproc/console.py"),
@@ -101,6 +101,8 @@ func (c *GPT4) GetConversation(chatID int64) Conversation {
 
 func (c *GPT4) AddMessage(chatID int64, message string, role string, tokens int) Conversation {
 	convo := c.GetConversation(chatID)
+	// message = strings.ReplaceAll(message, "{", "\\{")
+	// message = strings.ReplaceAll(message, "}", "\\}")
 	convo.Messages = append(convo.Messages, Message{Role: role, Content: message})
 	if tokens > 0 {
 		convo.TotalTokens = tokens
@@ -214,6 +216,7 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 	var role string
 	var err error
 
+	message = strings.TrimSpace(message)
 	if strings.HasPrefix(message, "/system ") {
 		role = "system"
 		message = message[8:]
@@ -223,7 +226,7 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 			return nil, fmt.Errorf("invalid command: %s", message)
 		}
 		plugin := strings.ToLower(gs[1])
-		query := gs[2]
+		query := strings.TrimSpace(gs[2])
 
 		// directly interact with a plugin
 		var ans string
@@ -278,7 +281,7 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 	var query string
 	var ans string
 
-	query_pat := regexp.MustCompile("🤖\\s*I ask (\\w+)\\s*```\\w*\\s+([\\s\\S]*)```")
+	query_pat := regexp.MustCompile(`🤖\s*I ask (\w+)\s+([\s\S]*)`)
 
 	// feed messages to the Telegram user
 	feed := client.FeedForward(
@@ -326,9 +329,14 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 					} else if plugin == "Wolfram" {
 						ans, err = c.Wolfram.Send(query)
 					} else if plugin == "Python" {
+						pat := regexp.MustCompile("```(py.*)?([\\s\\S]*)\\s*```")
+						match := pat.FindStringSubmatch(query)
+						if len(match) > 0 {
+							query = match[2]
+						}
 						ans, err = c.Python.Send(query)
 					} else if plugin == "Web" {
-						client := c.InitClient(query)
+						client := c.InitClient(strings.TrimSpace(query))
 						err = client.Connect("GET", map[string]string{}, nil)
 						if err != nil {
 							if strings.Contains(err.Error(), "404 Not Found") {
@@ -338,7 +346,7 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 								ans = ""
 							}
 						} else {
-							ans = <-client.ExtractHtml(8192)
+							ans = <-client.ExtractHtml(8000)
 						}
 					} else {
 						return true, fmt.Errorf("unknown plugin: %s", plugin)
@@ -354,7 +362,7 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 						ans = fmt.Sprintf("🤖 %s replies\n\n%s", plugin, ans)
 					}
 
-					c.AddMessage(tgChatID, ans, "user", 0)
+					c.AddMessage(tgChatID, ans, "assistant", 0)
 
 					log.Println(ans)
 
@@ -366,8 +374,13 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 							ss := strings.Split(ans, "\n")
 							if len(ss) > 4 {
 								ss = append(append(ss[:2], "..."), ss[len(ss)-2:]...)
-								ans = strings.Join(ss, "\n")
 							}
+							for i, s := range ss {
+								if len(s) > 128 {
+									ss[i] = s[:128] + "..."
+								}
+							}
+							ans = strings.Join(ss, "\n")
 						}
 					}
 					feed <- ans

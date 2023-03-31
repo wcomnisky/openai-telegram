@@ -47,6 +47,8 @@ func (b *Bot) Stop() {
 }
 
 func (b *Bot) Send(chatID int64, replyTo int, text string) (tgbotapi.Message, error) {
+	// text = strings.Replace(text, "{", "\\{", -1)
+	// text = strings.Replace(text, "}", "\\}", -1)
 	lines := strings.Split(text, "\n")
 	maxlen := 4096 // max length of a message
 	block_closed := true
@@ -69,7 +71,7 @@ func (b *Bot) Send(chatID int64, replyTo int, text string) (tgbotapi.Message, er
 		if i == len(lines) || len(content)+len(line) > maxlen {
 			content, block_closed = markdown.EnsureFormatting(content, block_closed)
 			c := tgbotapi.NewMessage(chatID, content)
-			c.ParseMode = "Markdown"
+			// c.ParseMode = "Markdown"
 			c.ReplyToMessageID = replyTo
 			msg, err := b.api.Send(c)
 			content = line
