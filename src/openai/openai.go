@@ -3,6 +3,7 @@ package openai
 import (
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"regexp"
 	"strings"
@@ -325,8 +326,10 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 					start_time := time.Now()
 
 					if plugin == "Bing" {
+						query = strings.Split(query, "\n")[0]
 						ans, err = c.Bing.Send(query)
 					} else if plugin == "Wolfram" {
+						query = strings.Split(query, "\n")[0]
 						ans, err = c.Wolfram.Send(query)
 					} else if plugin == "Python" {
 						pat := regexp.MustCompile("```(py.*)?([\\s\\S]*)\\s*```")
@@ -336,6 +339,7 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 						}
 						ans, err = c.Python.Send(query)
 					} else if plugin == "Web" {
+						query = strings.Split(query, "\n")[0]
 						client := c.InitClient(strings.TrimSpace(query))
 						err = client.Connect("GET", map[string]string{}, nil)
 						if err != nil {
@@ -346,7 +350,7 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 								ans = ""
 							}
 						} else {
-							ans = <-client.ExtractHtml(8000)
+							ans = <-client.ExtractHtml(6400)
 						}
 					} else {
 						return true, fmt.Errorf("unknown plugin: %s", plugin)
@@ -356,34 +360,39 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 						return true, err
 					}
 
-					if plugin != "Python" && ans == "" {
-						ans = QUERY_FAILED
-					} else {
-						ans = fmt.Sprintf("🤖 %s replies\n\n%s", plugin, ans)
-					}
-
-					c.AddMessage(tgChatID, ans, "assistant", 0)
-
-					log.Println(ans)
-
-					if !convo.Verbose && len(ans) > 1024 {
+					var snap string // snapshot of the answer
+					if !convo.Verbose && len(ans) > 720 {
 						if plugin == "Bing" {
 							ss := regexp.MustCompile(`\[.*?\]\(.*?\)`).FindAllString(ans, -1)
-							ans = strings.Join(ss, "\n")
+							snap = strings.Join(ss, "\n")
 						} else {
 							ss := strings.Split(ans, "\n")
-							if len(ss) > 4 {
-								ss = append(append(ss[:2], "..."), ss[len(ss)-2:]...)
+							if len(ss) > 6 {
+								ss = append(append(ss[:3], "..."), ss[len(ss)-3:]...)
 							}
 							for i, s := range ss {
-								if len(s) > 128 {
-									ss[i] = s[:128] + "..."
+								if len(s) > 120 {
+									ss[i] = s[:120] + "..."
 								}
 							}
-							ans = strings.Join(ss, "\n")
+							snap = strings.Join(ss, "\n")
 						}
+					} else {
+						snap = ans
 					}
-					feed <- ans
+
+					if plugin != "Python" && ans == "" {
+						ans = QUERY_FAILED
+						snap = ans
+					} else {
+						ans = fmt.Sprintf("🤖 %s replies\n\n%s", plugin, ans)
+						snap = fmt.Sprintf("🤖 %s replies\n\n%s", plugin, snap)
+					}
+
+					c.AddMessage(tgChatID, snap, "assistant", 0)
+
+					log.Println(snap)
+					feed <- snap
 
 					time_elapsed := time.Since(start_time)
 					t := 1*time.Second - time_elapsed
@@ -402,6 +411,32 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 			return true, fmt.Errorf("no response from GPT4")
 		},
 	)
-
 	return feed, nil
+}
+
+func (c *GPT4) Save(chatID int64, filename string) error {
+	convo := c.GetConversation(chatID)
+	data, err := json.MarshalIndent(convo, "", "  ")
+	if err != nil {
+		return err
+	}
+	return ioutil.WriteFile(filename, data, 0644)
+}
+
+func (c *GPT4) Load(chatID int64, filename string) error {
+	data, err := ioutil.ReadFile(filename)
+	if err != nil {
+		return err
+	}
+	var convo Conversation
+	err = json.Unmarshal(data, &convo)
+	if err != nil {
+		return err
+	}
+	c.Conversations[chatID] = convo
+	if convo.Messages[len(convo.Messages)-1].Role == "user" {
+		client := c.InitClient(OPENAI_API_URL)
+		return c.SendRequestAvoidTokensExceeded(client, chatID, 2)
+	}
+	return nil
 }

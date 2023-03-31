@@ -1,10 +1,12 @@
 import sys
+import ssl
 import code
 import builtins
 import requests
-import requests
 from importlib import import_module
 from restricted import safe_globals
+
+ssl._create_default_https_context = ssl._create_unverified_context
 
 
 ETX = chr(3)  # End of text, Ctrl-C
@@ -58,7 +60,6 @@ class PythonConsole(code.InteractiveConsole):
         #     enumerate=enumerate, getattr=getattr, hasattr=hasattr,
         #     fetch=fetch, requests=requests,
         # )
-        self.locals = {'__builtins__': vars(builtins), 'fetch': fetch}
 
     def interact(self):
         self.info('Started')
@@ -72,7 +73,7 @@ class PythonConsole(code.InteractiveConsole):
                 break
             
             if more and (end == ETX or line and not line[0].isspace()):
-                self.push('\n')  # end an indent block
+                self.push('\n\n')  # end an indent block
 
             more = self.push(line)
             

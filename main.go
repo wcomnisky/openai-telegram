@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -62,7 +63,7 @@ func main() {
 			cmd             = update.Message.Command()
 		)
 
-		_, ok := gpt.Conversations[update.Message.Chat.ID]
+		_, ok := gpt.Conversations[updateChatID]
 		if !ok {
 			gpt.AddMessage(updateChatID, BACKGROUND, "system", 0)
 			log.Println("Added default system prompt")
@@ -139,6 +140,42 @@ func main() {
 			for _, chatID := range gpt.GetChatIDs() {
 				text += fmt.Sprintf("/chat_%d\n", chatID)
 			}
+		case "delete":
+			index, err := strconv.Atoi(strings.TrimSpace(updateText[7:]))
+			if err != nil || index < 0 || index >= len(conversation.Messages) {
+				text = "❌ Invalid index."
+			} else {
+				msg := conversation.Messages[index].Content
+				if len(msg) > 20 {
+					msg = msg[:20] + "..."
+				}
+				text = fmt.Sprintf("ℹ️ Deleted message %d: %s", index, msg)
+				gpt.DelMessage(updateChatID, index)
+			}
+		case "save":
+			filename := strings.TrimSpace(updateText[5:])
+			if len(filename) == 0 {
+				filename = fmt.Sprintf("chat_%d.json", updateChatID)
+			}
+			path := filepath.Join("history", filename)
+			err := gpt.Save(updateChatID, path)
+			if err != nil {
+				text = fmt.Sprintf("❌ Failed to save conversation: %v", err)
+			} else {
+				text = fmt.Sprintf("ℹ️ Conversation saved to %s", filename)
+			}
+		case "load":
+			filename := strings.TrimSpace(updateText[5:])
+			if len(filename) == 0 {
+				filename = fmt.Sprintf("history/chat_%d.json", updateChatID)
+			}
+			path := filepath.Join("history", filename)
+			err := gpt.Load(updateChatID, path)
+			if err != nil {
+				text = fmt.Sprintf("❌ Failed to load conversation: %v", err)
+			} else {
+				text = fmt.Sprintf("ℹ️ Conversation loaded from %s", filename)
+			}
 		default:
 			if strings.HasPrefix(cmd, "chat_") {
 				i, err := strconv.Atoi(cmd[5:])
@@ -147,8 +184,10 @@ func main() {
 				} else {
 					convo := gpt.Conversations[int64(i)]
 					text = convo.GetConversationInfo()
-					for _, msg := range convo.Messages {
-						log.Println(msg)
+					for i, msg := range convo.Messages {
+						bot.Send(updateChatID, updateMessageID,
+							fmt.Sprintf("(%d) %s", i, msg))
+						time.Sleep(300 * time.Millisecond)
 					}
 				}
 			} else {

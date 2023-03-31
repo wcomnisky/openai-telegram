@@ -167,7 +167,7 @@ func (c *Client) ExtractHtml(maxLen int) chan string {
 		if len(content) > maxLen {
 			content = content[:maxLen-3] + "..."
 		}
-		content = regexp.MustCompile("[\r\n]+").ReplaceAllString(content, "\n")
+		content = regexp.MustCompile(`\s*\n\s*`).ReplaceAllString(content, "\n")
 		content = regexp.MustCompile("[ \t]+").ReplaceAllString(content, " ")
 		content = regexp.MustCompile(
 			`[^\w\d\s~!@#$%\^&*()\-=+\[\]{}|\\;:'",<.>/?]`,
