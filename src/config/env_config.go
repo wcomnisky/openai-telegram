@@ -78,6 +78,10 @@ func fileExists(path string) bool {
 }
 
 func (e *EnvConfig) ValidateWithDefaults() error {
+	if e.DefaultModel == "" {
+		e.DefaultModel = "gpt-3.5-turbo"
+		log.Printf("DEFAULT_MODEL not set, defaulting to %s", e.DefaultModel)
+	}
 	if e.TelegramToken == "" {
 		return errors.New("TELEGRAM_TOKEN is not set")
 	}

@@ -3,8 +3,8 @@ package openai
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"log"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -38,7 +38,7 @@ type GPT4 struct {
 	Temperature   float32
 	Bing          *bing.API
 	Wolfram       *wolfram.API
-	Python        *subproc.Subproc
+	// Python        *subproc.Subproc
 	// Shell         *subproc.Subproc
 }
 
@@ -78,13 +78,13 @@ func Init(config *config.EnvConfig) *GPT4 {
 		Temperature:   1.0,
 		Bing:          bing.Init(config),
 		Wolfram:       wolfram.Init(config),
-		Python:        subproc.Init(config.PythonPath, "src/subproc/console.py"),
+		// Python:        subproc.Init(config.PythonPath, "src/subproc/console.py"),
 	}
 }
 
 func (c *GPT4) Close() {
 	log.Println("Closing GPT4 client...")
-	go c.Python.Close()
+	// go c.Python.Close()
 }
 
 func (c *GPT4) ResetConversation(chatID int64) {
@@ -123,7 +123,7 @@ func (c *GPT4) DelMessage(chatID int64, index int) Conversation {
 }
 
 func (t *Conversation) GetConversationInfo() string {
-	return fmt.Sprintf("Length: %d  Tokens: %d  Duration: %.0f s",
+	return fmt.Sprintf("Length: %d  Tokens: %d  Duration: %.0fs",
 		len(t.Messages), t.TotalTokens, time.Since(t.Time).Seconds())
 }
 
@@ -232,9 +232,10 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 		// directly interact with a plugin
 		var ans string
 		var err error
-		if plugin == "py" || plugin == "python" {
-			ans, err = c.Python.Send(query)
-		} else if plugin == "sh" {
+		// if plugin == "py" || plugin == "python" {
+		// ans, err = c.Python.Send(query)
+		// } else
+		if plugin == "sh" {
 			args := strings.Split(query, " ")
 			p := subproc.Init(args[0], args[1:]...)
 			out, err := p.Out.ReadString('\x03')
@@ -331,13 +332,13 @@ func (c *GPT4) SendMessage(message string, tgChatID int64) (chan string, error) 
 					} else if plugin == "Wolfram" {
 						query = strings.Split(query, "\n")[0]
 						ans, err = c.Wolfram.Send(query)
-					} else if plugin == "Python" {
-						pat := regexp.MustCompile("```(py.*)?([\\s\\S]*)\\s*```")
-						match := pat.FindStringSubmatch(query)
-						if len(match) > 0 {
-							query = match[2]
-						}
-						ans, err = c.Python.Send(query)
+						// } else if plugin == "Python" {
+						// pat := regexp.MustCompile("```(py.*)?([\\s\\S]*)\\s*```")
+						// match := pat.FindStringSubmatch(query)
+						// if len(match) > 0 {
+						// 	query = match[2]
+						// }
+						// ans, err = c.Python.Send(query)
 					} else if plugin == "Web" {
 						query = strings.Split(query, "\n")[0]
 						client := c.InitClient(strings.TrimSpace(query))
@@ -420,11 +421,11 @@ func (c *GPT4) Save(chatID int64, filename string) error {
 	if err != nil {
 		return err
 	}
-	return ioutil.WriteFile(filename, data, 0644)
+	return os.WriteFile(filename, data, 0644)
 }
 
 func (c *GPT4) Load(chatID int64, filename string) error {
-	data, err := ioutil.ReadFile(filename)
+	data, err := os.ReadFile(filename)
 	if err != nil {
 		return err
 	}
